@@ -1,0 +1,1059 @@
+version: "4.1"
+name: WHEELTEC
+type: ARM
+deviceName: null
+packDir: null
+srcDirs: []
+virtualFolder:
+  name: <virtual_root>
+  files: []
+  folders:
+    - name: Updatelog
+      files:
+        - path: 更新记录.txt
+      folders: []
+    - name: CORE
+      files:
+        - path: CORE/startup_stm32f40_41xxx.s
+      folders: []
+    - name: FWLIB
+      files:
+        - path: FWLIB/src/misc.c
+        - path: FWLIB/src/stm32f4xx_gpio.c
+        - path: FWLIB/src/stm32f4xx_rcc.c
+        - path: FWLIB/src/stm32f4xx_syscfg.c
+        - path: FWLIB/src/stm32f4xx_usart.c
+        - path: FWLIB/src/stm32f4xx_adc.c
+        - path: FWLIB/src/stm32f4xx_can.c
+        - path: FWLIB/src/stm32f4xx_tim.c
+        - path: FWLIB/src/stm32f4xx_pwr.c
+        - path: FWLIB/src/stm32f4xx_dma.c
+        - path: FWLIB/src/stm32f4xx_hal_hcd.c
+        - path: FWLIB/src/stm32f4xx_ll_usb.c
+      folders: []
+    - name: FreeRTOS_CORE
+      files:
+        - path: FreeRTOS/croutine.c
+        - path: FreeRTOS/event_groups.c
+        - path: FreeRTOS/list.c
+        - path: FreeRTOS/queue.c
+        - path: FreeRTOS/tasks.c
+        - path: FreeRTOS/timers.c
+      folders: []
+    - name: FreeRTOS_PORTABLE
+      files:
+        - path: FreeRTOS/portable/RVDS/ARM_CM4F/port.c
+        - path: FreeRTOS/portable/MemMang/heap_4.c
+      folders: []
+    - name: USER
+      files:
+        - path: USER/main.c
+        - path: USER/system.c
+        - path: USER/stm32f4xx_it.c
+        - path: USER/system_stm32f4xx.c
+      folders: []
+    - name: SYSTEM
+      files:
+        - path: SYSTEM/delay/delay.c
+        - path: SYSTEM/sys/sys.c
+        - path: SYSTEM/usart/usart.c
+      folders: []
+    - name: HARDWARE
+      files:
+        - path: HARDWARE/adc.c
+        - path: HARDWARE/auto_recharge.c
+        - path: HARDWARE/can.c
+        - path: HARDWARE/buzzer.c
+        - path: HARDWARE/encoder.c
+        - path: HARDWARE/enable_key.c
+        - path: HARDWARE/I2C.c
+        - path: HARDWARE/ICM20948/ICM20948.c
+        - path: HARDWARE/key.c
+        - path: HARDWARE/LED.C
+        - path: HARDWARE/motor.c
+        - path: HARDWARE/MPU6050/MPU6050.c
+        - path: HARDWARE/oled.c
+        - path: HARDWARE/remote.c
+        - path: HARDWARE/stmflash.c
+        - path: HARDWARE/uartx.c
+        - path: HARDWARE/bsp_gamepad.c
+        - path: HARDWARE/ps2_classic.c
+      folders: []
+    - name: CarType
+      files:
+        - path: CarType/akm_robot_init.c
+        - path: CarType/diff_robot_init.c
+        - path: CarType/mec_robot_init.c
+        - path: CarType/4wd_robot_init.c
+        - path: CarType/omni_robot_init.c
+      folders: []
+    - name: Balance
+      files:
+        - path: BALANCE/balance_task.c
+        - path: BALANCE/imu_task.c
+        - path: BALANCE/show_task.c
+        - path: BALANCE/led_task.c
+        - path: BALANCE/ps2_task.c
+        - path: BALANCE/data_task.c
+        - path: BALANCE/uartx_callback.c
+        - path: BALANCE/can_callback.c
+        - path: BALANCE/timx_callback.c
+      folders: []
+    - name: Middlewares
+      files: []
+      folders:
+        - name: USB_Host_Library
+          files:
+            - path: MiddleWares/STM32_USB_Host_Library/Core/Src/usbh_core.c
+            - path: MiddleWares/STM32_USB_Host_Library/Core/Src/usbh_ctlreq.c
+            - path: MiddleWares/STM32_USB_Host_Library/Core/Src/usbh_ioreq.c
+            - path: MiddleWares/STM32_USB_Host_Library/Core/Src/usbh_pipes.c
+            - path: MiddleWares/STM32_USB_Host_Library/Class/HID/Src/usbh_hid.c
+            - path: MiddleWares/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_keybd.c
+            - path: MiddleWares/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_mouse.c
+            - path: MiddleWares/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_parser.c
+          folders: []
+    - name: USB_Host
+      files: []
+      folders:
+        - name: Target
+          files:
+            - path: USB_HOST/Target/usbh_conf.c
+          folders: []
+        - name: App
+          files:
+            - path: USB_HOST/App/usb_host.c
+            - path: USB_HOST/App/usbh_os_middleware.c
+            - path: USB_HOST/App/usbh_hid_GamePad.c
+            - path: USB_HOST/App/xbox360_gamepad.c
+            - path: USB_HOST/App/WiredPS2_gamepad.c
+          folders: []
+dependenceList: []
+outDir: build
+miscInfo:
+  uid: 680bdac3c182054219fe06a6f0747966
+targets:
+  4WD_Car:
+    cppPreprocessAttrs:
+      defineList:
+        - STM32F40_41xxx
+        - USE_STDPERIPH_DRIVER
+        - __FPU_PRESENT=1
+        - __TARGET_FPU_VFP
+        - ARM_MATH_CM4
+        - __CC_ARM
+        - USE_USB_OTG_FS
+        - _4WD_CAR
+      incList:
+        - CORE
+        - SYSTEM/delay
+        - SYSTEM/sys
+        - SYSTEM/usart
+        - USER
+        - FWLIB/inc
+        - FreeRTOS/include
+        - FreeRTOS/portable/RVDS/ARM_CM4F
+        - BALANCE/Inc
+        - CarType/Inc
+        - HARDWARE/Inc
+        - HARDWARE/ICM20948
+        - HARDWARE/MPU6050
+        - USB_HOST/App
+        - USB_HOST/Target
+        - MiddleWares/STM32_USB_Host_Library/Class/HID/Inc
+        - MiddleWares/STM32_USB_Host_Library/Core/Inc
+        - .cmsis/include
+        - USER/RTE/_4WD_Car
+      libList: []
+    excludeList:
+      - <virtual_root>/CarType/akm_robot_init.c
+      - <virtual_root>/CarType/diff_robot_init.c
+      - <virtual_root>/CarType/mec_robot_init.c
+      - <virtual_root>/CarType/omni_robot_init.c
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks:
+            - name: "[Copy linker output for Keil User Commands]"
+              abortAfterFailed: true
+              command: cd .\USER && mkdir ${KEIL_OUTPUT_DIR} & copy "${OutDir}\${ProjectName}.axf" "${KEIL_OUTPUT_DIR}\${KEIL_OUTPUT_NAME}.axf"
+              disable: false
+            - name: fromelf --bin --output=..\4WD_Car.bin ..\OBJ\4WD_Car.axf
+              abortAfterFailed: true
+              command: cd .\USER && fromelf --bin --output=..\4WD_Car.bin ..\OBJ\4WD_Car.axf
+              disable: false
+            - name: .\copyhex.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\copyhex.bat
+              disable: false
+          asm-compiler: {}
+          beforeBuildTasks:
+            - name: .\hexbinHandle.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\hexbinHandle.bat
+              disable: false
+              stopBuildAfterFailed: true
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-3
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+            ro-base: "0x08000000"
+            rw-base: "0x20000000"
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x80000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+      STLink:
+        address: "0x8000000"
+        bin: ""
+        elFile: None
+        optionBytes: .eide/4wd_car.st.option.bytes.ini
+        otherCmds: ""
+        proType: SWD
+        resetMode: default
+        runAfterProgram: true
+        speed: 4000
+    uploader: STLink
+  Akm_Car:
+    cppPreprocessAttrs:
+      defineList:
+        - STM32F40_41xxx
+        - USE_STDPERIPH_DRIVER
+        - __FPU_PRESENT=1
+        - __TARGET_FPU_VFP
+        - ARM_MATH_CM4
+        - __CC_ARM
+        - USE_USB_OTG_FS
+        - AKM_CAR
+      incList:
+        - CORE
+        - SYSTEM/delay
+        - SYSTEM/sys
+        - SYSTEM/usart
+        - FWLIB/inc
+        - FreeRTOS/include
+        - FreeRTOS/portable/RVDS/ARM_CM4F
+        - BALANCE/Inc
+        - HARDWARE/Inc
+        - USER
+        - CarType/Inc
+        - HARDWARE/ICM20948
+        - HARDWARE/MPU6050
+        - USB_HOST/App
+        - USB_HOST/Target
+        - MiddleWares/STM32_USB_Host_Library/Core/Inc
+        - MiddleWares/STM32_USB_Host_Library/Class/HID/Inc
+        - .cmsis/include
+        - USER/RTE/_Akm_Car
+      libList: []
+    excludeList:
+      - <virtual_root>/CarType/diff_robot_init.c
+      - <virtual_root>/CarType/mec_robot_init.c
+      - <virtual_root>/CarType/4wd_robot_init.c
+      - <virtual_root>/CarType/omni_robot_init.c
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks:
+            - name: "[Copy linker output for Keil User Commands]"
+              abortAfterFailed: true
+              command: cd .\USER && mkdir ${KEIL_OUTPUT_DIR} & copy "${OutDir}\${ProjectName}.axf" "${KEIL_OUTPUT_DIR}\${KEIL_OUTPUT_NAME}.axf"
+              disable: false
+            - name: fromelf --bin --output=..\Akm_Car.bin ..\OBJ\Akm_Car.axf
+              abortAfterFailed: true
+              command: cd .\USER && fromelf --bin --output=..\Akm_Car.bin ..\OBJ\Akm_Car.axf
+              disable: true
+            - name: .\copyhex.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\copyhex.bat
+              disable: false
+          asm-compiler: {}
+          beforeBuildTasks:
+            - name: .\hexbinHandle.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\hexbinHandle.bat
+              disable: false
+              stopBuildAfterFailed: true
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-2
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+            ro-base: "0x08000000"
+            rw-base: "0x20000000"
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x80000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+      AC6:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 3
+          afterBuildTasks: []
+          asm-compiler:
+            $use: asm-auto
+            misc-controls: ""
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            language-c: c99
+            language-cpp: c++11
+            link-time-optimization: false
+            optimization: level-0
+          global:
+            output-debug-info: enable
+            use-microLIB: false
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            misc-controls: --diag_suppress=L6329
+            output-format: elf
+        scatterFilePath: <YOUR_SCATTER_FILE>.sct
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x5000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x10000"
+                startAddr: "0x08000000"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+      probe-rs:
+        allowEraseAll: false
+        baseAddr: "0x08000000"
+        bin: ""
+        otherOptions: ""
+        protocol: swd
+        speed: 0
+        target: STM32F103C8
+    uploader: probe-rs
+  Diff_Car:
+    cppPreprocessAttrs:
+      defineList:
+        - STM32F40_41xxx
+        - USE_STDPERIPH_DRIVER
+        - __FPU_PRESENT=1
+        - __TARGET_FPU_VFP
+        - ARM_MATH_CM4
+        - __CC_ARM
+        - USE_USB_OTG_FS
+        - DIFF_CAR
+      incList:
+        - CORE
+        - SYSTEM/delay
+        - SYSTEM/sys
+        - SYSTEM/usart
+        - USER
+        - FWLIB/inc
+        - FreeRTOS/include
+        - FreeRTOS/portable/RVDS/ARM_CM4F
+        - CarType/Inc
+        - BALANCE/Inc
+        - HARDWARE/Inc
+        - HARDWARE/MPU6050
+        - HARDWARE/ICM20948
+        - MiddleWares/STM32_USB_Host_Library/Class/HID/Inc
+        - MiddleWares/STM32_USB_Host_Library/Core/Inc
+        - USB_HOST/App
+        - USB_HOST/Target
+        - .cmsis/include
+        - USER/RTE/_Diff_Car
+      libList: []
+    excludeList:
+      - <virtual_root>/CarType/akm_robot_init.c
+      - <virtual_root>/CarType/mec_robot_init.c
+      - <virtual_root>/CarType/4wd_robot_init.c
+      - <virtual_root>/CarType/omni_robot_init.c
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks:
+            - name: "[Copy linker output for Keil User Commands]"
+              abortAfterFailed: true
+              command: cd .\USER && mkdir ${KEIL_OUTPUT_DIR} & copy "${OutDir}\${ProjectName}.axf" "${KEIL_OUTPUT_DIR}\${KEIL_OUTPUT_NAME}.axf"
+              disable: false
+            - name: fromelf --bin --output=..\Diff_Car.bin ..\OBJ\Diff_Car.axf
+              abortAfterFailed: true
+              command: cd .\USER && fromelf --bin --output=..\Diff_Car.bin ..\OBJ\Diff_Car.axf
+              disable: true
+            - name: .\copyhex.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\copyhex.bat
+              disable: false
+          asm-compiler: {}
+          beforeBuildTasks:
+            - name: .\hexbinHandle.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\hexbinHandle.bat
+              disable: false
+              stopBuildAfterFailed: true
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-2
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+            ro-base: "0x08000000"
+            rw-base: "0x20000000"
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x80000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+    uploader: JLink
+  Mec_Car:
+    cppPreprocessAttrs:
+      defineList:
+        - STM32F40_41xxx
+        - USE_STDPERIPH_DRIVER
+        - __FPU_PRESENT=1
+        - __TARGET_FPU_VFP
+        - ARM_MATH_CM4
+        - __CC_ARM
+        - USE_USB_OTG_FS
+        - MEC_CAR
+      incList:
+        - CORE
+        - SYSTEM/delay
+        - SYSTEM/sys
+        - SYSTEM/usart
+        - USER
+        - FWLIB/inc
+        - FreeRTOS/include
+        - FreeRTOS/portable/RVDS/ARM_CM4F
+        - BALANCE/Inc
+        - CarType/Inc
+        - HARDWARE/Inc
+        - HARDWARE/ICM20948
+        - HARDWARE/MPU6050
+        - USB_HOST/App
+        - USB_HOST/Target
+        - MiddleWares/STM32_USB_Host_Library/Class/HID/Inc
+        - MiddleWares/STM32_USB_Host_Library/Core/Inc
+        - .cmsis/include
+        - USER/RTE/_Mec_Car
+      libList: []
+    excludeList:
+      - <virtual_root>/CarType/akm_robot_init.c
+      - <virtual_root>/CarType/diff_robot_init.c
+      - <virtual_root>/CarType/4wd_robot_init.c
+      - <virtual_root>/CarType/omni_robot_init.c
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks:
+            - name: "[Copy linker output for Keil User Commands]"
+              abortAfterFailed: true
+              command: cd .\USER && mkdir ${KEIL_OUTPUT_DIR} & copy "${OutDir}\${ProjectName}.axf" "${KEIL_OUTPUT_DIR}\${KEIL_OUTPUT_NAME}.axf"
+              disable: false
+            - name: fromelf --bin --output=..\Mec_Car.bin ..\OBJ\Mec_Car.axf
+              abortAfterFailed: true
+              command: cd .\USER && fromelf --bin --output=..\Mec_Car.bin ..\OBJ\Mec_Car.axf
+              disable: false
+            - name: .\copyhex.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\copyhex.bat
+              disable: false
+          asm-compiler: {}
+          beforeBuildTasks:
+            - name: .\hexbinHandle.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\hexbinHandle.bat
+              disable: false
+              stopBuildAfterFailed: true
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-2
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+            ro-base: "0x08000000"
+            rw-base: "0x20000000"
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x80000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+    uploader: JLink
+  Omni_Car:
+    cppPreprocessAttrs:
+      defineList:
+        - STM32F40_41xxx
+        - USE_STDPERIPH_DRIVER
+        - __FPU_PRESENT=1
+        - __TARGET_FPU_VFP
+        - ARM_MATH_CM4
+        - __CC_ARM
+        - USE_USB_OTG_FS
+        - OMNI_CAR
+      incList:
+        - CORE
+        - SYSTEM/delay
+        - SYSTEM/sys
+        - SYSTEM/usart
+        - USER
+        - FWLIB/inc
+        - FreeRTOS/include
+        - FreeRTOS/portable/RVDS/ARM_CM4F
+        - BALANCE/Inc
+        - CarType/Inc
+        - HARDWARE/Inc
+        - HARDWARE/ICM20948
+        - HARDWARE/MPU6050
+        - USB_HOST/App
+        - USB_HOST/Target
+        - MiddleWares/STM32_USB_Host_Library/Class/HID/Inc
+        - MiddleWares/STM32_USB_Host_Library/Core/Inc
+        - .cmsis/include
+        - USER/RTE/_Omni_Car
+      libList: []
+    excludeList:
+      - <virtual_root>/CarType/akm_robot_init.c
+      - <virtual_root>/CarType/diff_robot_init.c
+      - <virtual_root>/CarType/mec_robot_init.c
+      - <virtual_root>/CarType/4wd_robot_init.c
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks:
+            - name: "[Copy linker output for Keil User Commands]"
+              abortAfterFailed: true
+              command: cd .\USER && mkdir ${KEIL_OUTPUT_DIR} & copy "${OutDir}\${ProjectName}.axf" "${KEIL_OUTPUT_DIR}\${KEIL_OUTPUT_NAME}.axf"
+              disable: false
+            - name: fromelf --bin --output=..\Omni_Car.bin ..\OBJ\Omni_Car.axf
+              abortAfterFailed: true
+              command: cd .\USER && fromelf --bin --output=..\Omni_Car.bin ..\OBJ\Omni_Car.axf
+              disable: true
+            - name: .\copyhex.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\copyhex.bat
+              disable: false
+          asm-compiler: {}
+          beforeBuildTasks:
+            - name: .\hexbinHandle.bat
+              abortAfterFailed: true
+              command: cd .\USER && .\hexbinHandle.bat
+              disable: false
+              stopBuildAfterFailed: true
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-2
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+            ro-base: "0x08000000"
+            rw-base: "0x20000000"
+            xo-base: ""
+        scatterFilePath: ""
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 3
+              isChecked: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              noInit: false
+              tag: RAM
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 3
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: ROM
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x80000"
+                startAddr: "0x8000000"
+              tag: IROM
+            - id: 2
+              isChecked: false
+              isStartup: false
+              mem:
+                size: "0x0"
+                startAddr: "0x0"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: "null"
+          vendor: "null"
+        otherCmds: ""
+        proType: 1
+        speed: 8000
+      OpenOCD:
+        baseAddr: "0x08000000"
+        bin: ""
+        interface: stlink
+        target: stm32f1x
+      STLink:
+        address: "0x8000000"
+        bin: ""
+        elFile: None
+        optionBytes: .eide/omni_car.st.option.bytes.ini
+        otherCmds: ""
+        proType: SWD
+        resetMode: default
+        runAfterProgram: true
+        speed: 4000
+      probe-rs:
+        allowEraseAll: false
+        baseAddr: "0x08000000"
+        bin: ""
+        otherOptions: ""
+        protocol: swd
+        speed: 0
+        target: STM32F103C8
+    uploader: STLink
