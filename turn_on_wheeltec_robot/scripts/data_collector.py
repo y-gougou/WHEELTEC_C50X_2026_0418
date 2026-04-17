@@ -147,10 +147,10 @@ class DataCollector:
 
     def odom_callback(self, msg):
         """里程计回调"""
-        # 提取vx, vy, ω (线速度在child_frame_id坐标系下)
+        # 提取vx, vy, wz (线速度在child_frame_id坐标系下，z轴取角速度)
         vx = msg.twist.twist.linear.x
         vy = msg.twist.twist.linear.y
-        vz = msg.twist.twist.linear.z  # 通常为0
+        vz = msg.twist.twist.angular.z
 
         # 角速度
         wx = msg.twist.twist.angular.x
