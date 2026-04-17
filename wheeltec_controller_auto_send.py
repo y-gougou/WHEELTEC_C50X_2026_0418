@@ -81,6 +81,17 @@ SPEED_PRESETS = (
     ("全速", 1000),
 )
 
+LAYOUT_WIDE_MIN = 1280
+LAYOUT_COMPACT_MIN = 900
+
+SECTION_LOG = "log"
+SECTION_SERIAL = "serial"
+SECTION_MOTION = "motion"
+SECTION_STATUS = "status"
+SECTION_ADVANCED = "advanced"
+
+DESKTOP_SLOT_NAMES = ("top_left", "top_right", "bottom_left", "bottom_right", "bottom_full")
+
 
 @dataclass(slots=True)
 class StatusFrame:
@@ -167,25 +178,6 @@ def frame_to_hex(frame: bytes) -> str:
     return " ".join(f"{b:02X}" for b in frame)
 
 
-class ControlButton(tk.Button):
-    def __init__(self, parent, **kwargs):
-        self.normal_bg = kwargs.pop("bg", BTN_BG)
-        self.hover_bg = kwargs.pop("hover_bg", "#1f6feb")
-        super().__init__(
-            parent,
-            bg=self.normal_bg,
-            fg=TEXT_PRI,
-            activebackground=self.hover_bg,
-            activeforeground="white",
-            relief="flat",
-            bd=0,
-            cursor="hand2",
-            **kwargs,
-        )
-        self.bind("<Enter>", lambda _e: self.config(bg=self.hover_bg))
-        self.bind("<Leave>", lambda _e: self.config(bg=self.normal_bg))
-
-
 class WheeltecController:
     AXIS_CONFIG = (
         ("vx", "Vx 前后", "mm/s", -2000, 2000, 10),
@@ -197,7 +189,7 @@ class WheeltecController:
         self.root = root
         self.root.title("WHEELTEC ROS 底盘串口上位机")
         self.root.configure(bg=BG)
-        self.root.minsize(1160, 760)
+        self.root.minsize(720, 620)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.ser: serial.Serial | None = None
@@ -243,22 +235,59 @@ class WheeltecController:
         self.last_sent_payload: tuple[int, int, int, int] | None = None
 
         self.speed_scales: dict[str, tk.Scale] = {}
-        self.speed_entries: dict[str, tk.Entry] = {}
+        self.speed_entries: dict[str, tk.Widget] = {}
         self.speed_labels: dict[str, tk.Label] = {}
         self.byte_labels: list[tk.Label] = []
         self.last_rx_byte_labels: list[tk.Label] = []
+        self.status_value_labels: list[tk.Label] = []
+        self.frame_bar_groups: list[tuple[tk.Frame, list[tk.Frame]]] = []
+        self.section_frames: dict[str, tk.Frame] = {}
+        self.section_bodies: dict[str, tk.Frame] = {}
+        self.section_order: dict[str, int] = {}
+        self.section_headers: dict[str, tk.Frame] = {}
+        self.section_drag_labels: dict[str, tk.Label] = {}
+        self.section_titles: dict[str, tk.Label] = {}
+        self.section_toggles: dict[str, ttk.Button] = {}
+        self.collapsed_sections: dict[str, bool] = {}
+        self.section_default_border: dict[str, str] = {}
+        self.layout_mode = "wide"
+        self.layout_orders: dict[str, list[str]] = {}
+        self.docking_guides: dict[str, tk.Label] = {}
+        self.layout_job: str | None = None
+        self.log_poll_job: str | None = None
+        self.body_scroll_canvas: tk.Canvas | None = None
+        self.body_scroll_frame: tk.Frame | None = None
+        self.body_scroll_window: int | None = None
+        self.layout_frame: tk.Frame | None = None
+        self.dpad_hint_label: tk.Label | None = None
+        self.header_frame: tk.Frame | None = None
+        self.header_title_label: tk.Label | None = None
+        self.header_badge_frame: tk.Frame | None = None
+        self.runtime_badges: dict[str, tk.Label] = {}
+        self.metric_value_labels: dict[str, tk.Label] = {}
+        self.drag_section_name: str | None = None
+        self.drag_start_xy: tuple[int, int] | None = None
+        self.drag_active = False
+        self.drag_target_slot: str | None = None
+        self.drag_target_section: str | None = None
 
         # ========== ACK相关 ==========
         self._pending_acks: dict = {}  # payload -> (log_line_id, send_time_ms)
         self._ack_timeout_ms = 500     # ACK超时时间(ms)
         self._ack_check_job: str | None = None  # ACK检查定时器
         self._acked_line_ids: set = set()  # 已确认的行号集合
+        self.layout_orders = {
+            "wide": [SECTION_SERIAL, SECTION_STATUS, SECTION_MOTION, SECTION_ADVANCED, SECTION_LOG],
+            "compact": [SECTION_SERIAL, SECTION_STATUS, SECTION_MOTION, SECTION_ADVANCED, SECTION_LOG],
+            "single": [SECTION_LOG, SECTION_SERIAL, SECTION_MOTION, SECTION_STATUS, SECTION_ADVANCED],
+        }
 
         self._build_ui()
         self._bind_variables()
         self._bind_shortcuts()
         self._refresh_ports()
         self._update_preview()
+        self._refresh_runtime_indicators()
         self._poll_log()
 
     def _build_ui(self):
@@ -266,118 +295,746 @@ class WheeltecController:
         self.root.rowconfigure(1, weight=1)
 
         self._build_header()
+        self._build_scrollable_body()
 
-        main = tk.Frame(self.root, bg=BG)
-        main.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
-        main.columnconfigure(0, weight=1)
-        main.columnconfigure(1, weight=1)
-        main.rowconfigure(0, weight=1)
+        serial_body = self._register_section(SECTION_SERIAL, "串口连接与发送", priority=20)
+        self._build_connection(serial_body)
+        self._build_send_panel(serial_body)
 
-        left = tk.Frame(main, bg=BG)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        motion_body = self._register_section(SECTION_MOTION, "运动控制", priority=30)
+        self._build_mode_panel(motion_body)
+        self._build_speed_panel(motion_body)
+        self._build_dpad(motion_body)
 
-        right = tk.Frame(main, bg=BG)
-        right.grid(row=0, column=1, sticky="nsew")
-        right.columnconfigure(0, weight=1)
-        right.rowconfigure(2, weight=1)
+        status_body = self._register_section(SECTION_STATUS, "运行状态", priority=40)
+        self._build_status(status_body)
+        self._build_dashboard(status_body)
 
-        self._build_connection(left)
-        self._build_status(left)
-        self._build_mode_panel(left)
-        self._build_speed_panel(left)
-        self._build_dpad(left)
-        self._build_send_panel(left)
-        self._build_dashboard(right)
-        self._build_frame_preview(right)
-        self._build_rx_preview(right)
-        self._build_log(right)
+        advanced_body = self._register_section(
+            SECTION_ADVANCED,
+            "高级诊断",
+            priority=50,
+            collapsible=True,
+        )
+        self._build_frame_preview(advanced_body)
+        self._build_rx_preview(advanced_body)
+        self._build_imu_panel(advanced_body)
+
+        log_body = self._register_section(SECTION_LOG, "通信日志", priority=10)
+        self._build_log(log_body)
+
+        self.root.bind("<Configure>", self._on_root_configure)
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.root.after_idle(lambda: self._apply_responsive_layout(self.root.winfo_width()))
 
     def _build_header(self):
-        header = tk.Frame(self.root, bg=PANEL, height=54)
+        header = tk.Frame(self.root, bg=PANEL)
         header.grid(row=0, column=0, sticky="ew")
-        header.grid_propagate(False)
+        header.columnconfigure(1, weight=1)
+        self.header_frame = header
 
         dot = tk.Canvas(header, width=10, height=10, bg=PANEL, highlightthickness=0)
-        dot.pack(side="left", padx=(18, 6))
+        dot.grid(row=0, column=0, padx=(18, 6), pady=14)
         dot.create_oval(1, 1, 9, 9, fill=ACCENT, outline="")
 
-        tk.Label(
+        self.header_title_label = tk.Label(
             header,
             text="WHEELTEC 底盘串口控制台",
             bg=PANEL,
             fg=TEXT_PRI,
             font=("Microsoft YaHei UI", 13, "bold"),
-        ).pack(side="left", pady=14)
-
-        self.status_lbl = tk.Label(
-            header,
-            text="● 未连接",
-            bg=PANEL,
-            fg=DANGER,
-            font=("Consolas", 10),
         )
-        self.status_lbl.pack(side="right", padx=18)
+        self.header_title_label.grid(row=0, column=1, sticky="w", pady=12)
 
-        tk.Frame(self.root, bg=BORDER, height=1).grid(row=0, column=0, sticky="sew")
+        badge_frame = tk.Frame(header, bg=PANEL)
+        badge_frame.grid(row=0, column=2, sticky="e", padx=18, pady=10)
+        self.header_badge_frame = badge_frame
+        self.status_lbl = self._create_badge(
+            badge_frame,
+            "未连接",
+            bg="#351c1c",
+            fg=DANGER,
+            font=("Consolas", 10, "bold"),
+            pad_x=12,
+            pad_y=5,
+        )
+        self.status_lbl.pack(side="left", padx=(0, 8))
+        self.runtime_badges["auto"] = self._create_badge(badge_frame, "连发关", bg="#222831", fg=TEXT_SEC)
+        self.runtime_badges["auto"].pack(side="left", padx=4)
+        self.runtime_badges["record"] = self._create_badge(badge_frame, "记录关", bg="#222831", fg=TEXT_SEC)
+        self.runtime_badges["record"].pack(side="left", padx=4)
+        self.runtime_badges["ack"] = self._create_badge(badge_frame, "ACK 0", bg="#222831", fg=TEXT_SEC)
+        self.runtime_badges["ack"].pack(side="left", padx=(4, 0))
+
+        ttk.Separator(header, orient="horizontal").grid(row=1, column=0, columnspan=3, sticky="ew")
+
+    def _build_scrollable_body(self):
+        body = tk.Frame(self.root, bg=BG)
+        body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        self.body_scroll_canvas = tk.Canvas(body, bg=BG, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=self.body_scroll_canvas.yview)
+        self.body_scroll_canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.body_scroll_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.body_scroll_frame = tk.Frame(self.body_scroll_canvas, bg=BG)
+        self.body_scroll_window = self.body_scroll_canvas.create_window(
+            (0, 0),
+            window=self.body_scroll_frame,
+            anchor="nw",
+        )
+
+        self.body_scroll_frame.columnconfigure(0, weight=1)
+        self.body_scroll_frame.bind("<Configure>", self._handle_body_frame_configure)
+        self.body_scroll_canvas.bind("<Configure>", self._handle_body_canvas_configure)
+
+        self.layout_frame = tk.Frame(self.body_scroll_frame, bg=BG)
+        self.layout_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(0, 12))
+
+    def _handle_body_frame_configure(self, _event: tk.Event | None):
+        if self.body_scroll_canvas is not None:
+            self.body_scroll_canvas.configure(scrollregion=self.body_scroll_canvas.bbox("all"))
+
+    def _handle_body_canvas_configure(self, event: tk.Event):
+        if self.body_scroll_canvas is None or self.body_scroll_window is None:
+            return
+        self.body_scroll_canvas.itemconfigure(self.body_scroll_window, width=event.width)
+        self._queue_layout_refresh()
+
+    def _on_root_configure(self, event: tk.Event):
+        if event.widget is self.root:
+            self._queue_layout_refresh()
+
+    def _queue_layout_refresh(self):
+        if self.layout_job is not None:
+            try:
+                self.root.after_cancel(self.layout_job)
+            except tk.TclError:
+                pass
+        self.layout_job = self.root.after(120, lambda: self._apply_responsive_layout(self.root.winfo_width()))
+
+    def _on_mousewheel(self, event: tk.Event):
+        if self.body_scroll_canvas is None:
+            return
+        if self.log_text is not None and self._widget_is_descendant(event.widget, self.log_text):
+            return
+        if event.delta:
+            self.body_scroll_canvas.yview_scroll(int(-event.delta / 120), "units")
+
+    def _widget_is_descendant(self, widget: tk.Misc, ancestor: tk.Misc | None) -> bool:
+        if ancestor is None:
+            return False
+
+        current: tk.Misc | None = widget
+        while current is not None:
+            if current == ancestor:
+                return True
+            parent_name = current.winfo_parent()
+            if not parent_name:
+                return False
+            try:
+                current = current.nametowidget(parent_name)
+            except KeyError:
+                return False
+        return False
+
+    def _create_badge(
+        self,
+        parent: tk.Widget,
+        text: str,
+        bg: str,
+        fg: str,
+        font: tuple[str, int] | tuple[str, int, str] = ("Microsoft YaHei UI", 8, "bold"),
+        pad_x: int = 10,
+        pad_y: int = 4,
+    ) -> tk.Label:
+        return tk.Label(
+            parent,
+            text=text,
+            bg=bg,
+            fg=fg,
+            font=font,
+            padx=pad_x,
+            pady=pad_y,
+            bd=0,
+        )
+
+    def _set_badge(self, badge: tk.Label | None, text: str, bg: str, fg: str):
+        if badge is not None:
+            badge.config(text=text, bg=bg, fg=fg)
+
+    def _register_section(
+        self,
+        name: str,
+        title: str,
+        priority: int,
+        collapsible: bool = False,
+    ) -> tk.Frame:
+        if self.layout_frame is None:
+            raise RuntimeError("layout frame has not been created")
+
+        outer = tk.Frame(self.layout_frame, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(2, weight=1)
+        self.section_default_border[name] = BORDER
+
+        header = tk.Frame(outer, bg=PANEL)
+        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+        header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=0)
+        self.section_headers[name] = header
+
+        title_label = tk.Label(
+            header,
+            text=title,
+            bg=PANEL,
+            fg=TEXT_PRI,
+            anchor="w",
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        title_label.grid(row=0, column=0, sticky="w")
+
+        drag_label = tk.Label(
+            header,
+            text="拖动",
+            bg=PANEL,
+            fg=TEXT_DIM,
+            font=("Microsoft YaHei UI", 8),
+            cursor="fleur",
+        )
+        drag_column = 2 if collapsible else 1
+        drag_label.grid(row=0, column=drag_column, sticky="e", padx=(8, 0))
+        self.section_drag_labels[name] = drag_label
+
+        if collapsible:
+            toggle_btn = ttk.Button(
+                header,
+                text="收起",
+                style="Ghost.TButton",
+                width=6,
+                command=lambda section=name: self._toggle_section(section),
+            )
+            toggle_btn.grid(row=0, column=1, sticky="e", padx=(8, 0))
+            self.section_toggles[name] = toggle_btn
+
+        ttk.Separator(outer, orient="horizontal").grid(row=1, column=0, sticky="ew", padx=10)
+
+        body = tk.Frame(outer, bg=PANEL)
+        body.grid(row=2, column=0, sticky="nsew", padx=10, pady=8)
+        body.columnconfigure(0, weight=1)
+
+        self.section_frames[name] = outer
+        self.section_bodies[name] = body
+        self.section_order[name] = priority
+        self.section_titles[name] = title_label
+        self.collapsed_sections[name] = False
+        self._bind_section_drag(name, header, title_label, drag_label)
+        return body
+
+    def _bind_section_drag(self, name: str, *widgets: tk.Widget):
+        for widget in widgets:
+            widget.bind("<ButtonPress-1>", lambda event, section=name: self._start_section_drag(section, event))
+            widget.bind("<B1-Motion>", self._on_section_drag_motion)
+            widget.bind("<ButtonRelease-1>", self._finish_section_drag)
+
+    def _start_section_drag(self, name: str, event: tk.Event):
+        self.drag_section_name = name
+        self.drag_start_xy = (event.x_root, event.y_root)
+        self.drag_active = False
+        self.drag_target_slot = None
+        self.drag_target_section = None
+        frame = self.section_frames.get(name)
+        if frame is not None:
+            frame.configure(highlightbackground=ACCENT2, highlightthickness=2)
+        if self.layout_mode != "single":
+            self._show_docking_guides()
+
+    def _on_section_drag_motion(self, event: tk.Event):
+        if self.drag_section_name is None or self.drag_start_xy is None:
+            return
+
+        if not self.drag_active:
+            start_x, start_y = self.drag_start_xy
+            if abs(event.x_root - start_x) + abs(event.y_root - start_y) < 8:
+                return
+            self.drag_active = True
+
+        if self.layout_mode == "single":
+            section_name = self._find_section_at_point(event.x_root, event.y_root)
+            if section_name == self.drag_section_name:
+                section_name = None
+            slot_name = None
+            if section_name is not None:
+                frame = self.section_frames.get(section_name)
+                if frame is not None:
+                    midpoint = frame.winfo_rooty() + frame.winfo_height() / 2
+                    slot_name = "after" if event.y_root > midpoint else "before"
+            self._set_drag_target(slot_name=slot_name, section_name=section_name)
+        else:
+            self._update_docking_guides()
+            slot_name = self._find_desktop_drop_slot(event.x_root, event.y_root)
+            if slot_name is not None:
+                slot_section = self._get_desktop_slot_map().get(slot_name)
+                if slot_section == self.drag_section_name:
+                    slot_name = None
+                    slot_section = None
+            else:
+                slot_section = None
+            self._set_drag_target(slot_name=slot_name, section_name=slot_section)
+
+    def _finish_section_drag(self, event: tk.Event):
+        dragged = self.drag_section_name
+        target_slot = self.drag_target_slot
+        target_section = self.drag_target_section
+
+        self._clear_drag_visuals()
+        if dragged is not None and self.drag_active:
+            if self.layout_mode == "single" and target_section is not None:
+                self._insert_section_relative(dragged, target_section, target_slot == "after")
+            elif self.layout_mode != "single" and target_slot is not None:
+                self._move_section_to_slot(dragged, target_slot)
+            self._queue_layout_refresh()
+
+        self.drag_section_name = None
+        self.drag_start_xy = None
+        self.drag_active = False
+        self.drag_target_slot = None
+        self.drag_target_section = None
+        self._hide_docking_guides()
+
+    def _find_section_at_point(self, x_root: int, y_root: int) -> str | None:
+        for name, frame in self.section_frames.items():
+            if not frame.winfo_ismapped():
+                continue
+            left = frame.winfo_rootx()
+            top = frame.winfo_rooty()
+            right = left + frame.winfo_width()
+            bottom = top + frame.winfo_height()
+            if left <= x_root <= right and top <= y_root <= bottom:
+                return name
+        return None
+
+    def _set_drag_target(self, slot_name: str | None = None, section_name: str | None = None):
+        if self.drag_target_section == section_name and self.drag_target_slot == slot_name:
+            return
+        if self.drag_target_section is not None:
+            self._restore_section_border(self.drag_target_section)
+        self.drag_target_slot = slot_name
+        self.drag_target_section = section_name
+        if section_name is not None:
+            frame = self.section_frames.get(section_name)
+            if frame is not None:
+                frame.configure(highlightbackground=ACCENT, highlightthickness=2)
+        self._highlight_docking_guide(slot_name)
+
+    def _restore_section_border(self, name: str):
+        frame = self.section_frames.get(name)
+        if frame is not None:
+            frame.configure(
+                highlightbackground=self.section_default_border.get(name, BORDER),
+                highlightthickness=1,
+            )
+
+    def _clear_drag_visuals(self):
+        if self.drag_section_name is not None:
+            self._restore_section_border(self.drag_section_name)
+        if self.drag_target_section is not None:
+            self._restore_section_border(self.drag_target_section)
+        self._highlight_docking_guide(None)
+
+    def _get_desktop_slot_map(self) -> dict[str, str]:
+        order = self.layout_orders["compact" if self.layout_mode == "compact" else "wide"]
+        return dict(zip(DESKTOP_SLOT_NAMES, order))
+
+    def _show_docking_guides(self):
+        if self.layout_frame is None:
+            return
+        if not self.docking_guides:
+            title_map = {
+                "top_left": "左上",
+                "top_right": "右上",
+                "bottom_left": "左下",
+                "bottom_right": "右下",
+                "bottom_full": "底部",
+            }
+            for slot_name, title in title_map.items():
+                guide = tk.Label(
+                    self.layout_frame,
+                    text=title,
+                    bg="#152433",
+                    fg=TEXT_PRI,
+                    font=("Microsoft YaHei UI", 9, "bold"),
+                    bd=0,
+                    padx=10,
+                    pady=8,
+                )
+                self.docking_guides[slot_name] = guide
+        self._update_docking_guides()
+        for guide in self.docking_guides.values():
+            guide.lift()
+
+    def _hide_docking_guides(self):
+        for guide in self.docking_guides.values():
+            guide.place_forget()
+
+    def _update_docking_guides(self):
+        if self.layout_mode == "single":
+            self._hide_docking_guides()
+            return
+        if self.layout_frame is None:
+            return
+
+        self.layout_frame.update_idletasks()
+        slot_map = self._get_desktop_slot_map()
+        for slot_name, section_name in slot_map.items():
+            guide = self.docking_guides.get(slot_name)
+            frame = self.section_frames.get(section_name)
+            if guide is None or frame is None or not frame.winfo_ismapped():
+                continue
+            width = max(92, min(frame.winfo_width() - 28, 120))
+            height = 42
+            x = frame.winfo_x() + max(12, (frame.winfo_width() - width) // 2)
+            y = frame.winfo_y() + max(12, min(frame.winfo_height() - height - 12, 20))
+            guide.place(x=x, y=y, width=width, height=height)
+
+    def _highlight_docking_guide(self, slot_name: str | None):
+        for name, guide in self.docking_guides.items():
+            if slot_name == name:
+                guide.config(bg="#1f6feb", fg="white")
+            else:
+                guide.config(bg="#152433", fg=TEXT_PRI)
+
+    def _find_desktop_drop_slot(self, x_root: int, y_root: int) -> str | None:
+        for slot_name, guide in self.docking_guides.items():
+            if not guide.winfo_ismapped():
+                continue
+            left = guide.winfo_rootx()
+            top = guide.winfo_rooty()
+            right = left + guide.winfo_width()
+            bottom = top + guide.winfo_height()
+            if left <= x_root <= right and top <= y_root <= bottom:
+                return slot_name
+        return None
+
+    def _insert_section_relative(self, dragged: str, target: str, after: bool):
+        order = list(self.layout_orders["single"])
+        if dragged not in order or target not in order:
+            return
+        order.remove(dragged)
+        target_index = order.index(target)
+        if after:
+            target_index += 1
+        order.insert(target_index, dragged)
+        self.layout_orders["single"] = order
+
+    def _move_section_to_slot(self, dragged: str, slot_name: str):
+        if slot_name not in DESKTOP_SLOT_NAMES:
+            return
+        target_index = DESKTOP_SLOT_NAMES.index(slot_name)
+        for mode in ("wide", "compact"):
+            order = list(self.layout_orders[mode])
+            if dragged not in order:
+                continue
+            order.remove(dragged)
+            order.insert(target_index, dragged)
+            self.layout_orders[mode] = order
+
+    def _toggle_section(self, name: str):
+        self._set_section_collapsed(name, not self.collapsed_sections.get(name, False))
+        self._queue_layout_refresh()
+
+    def _set_section_collapsed(self, name: str, collapsed: bool):
+        body = self.section_bodies.get(name)
+        if body is None:
+            return
+        if collapsed:
+            body.grid_remove()
+        else:
+            body.grid()
+        self.collapsed_sections[name] = collapsed
+        toggle = self.section_toggles.get(name)
+        if toggle is not None:
+            toggle.config(text="展开" if collapsed else "收起")
+
+    def _apply_responsive_layout(self, width: int):
+        self.layout_job = None
+        if self.layout_frame is None:
+            return
+
+        previous_mode = self.layout_mode
+        if width >= LAYOUT_WIDE_MIN:
+            layout_mode = "wide"
+        elif width >= LAYOUT_COMPACT_MIN:
+            layout_mode = "compact"
+        else:
+            layout_mode = "single"
+
+        self.layout_mode = layout_mode
+
+        for section in self.section_frames.values():
+            section.grid_forget()
+
+        for column in range(3):
+            self.layout_frame.columnconfigure(column, weight=0, uniform="")
+
+        if layout_mode == "single":
+            grid_pad_x = 4
+            grid_pad_y = 4
+            self.layout_frame.columnconfigure(0, weight=1)
+            self.layout_frame.columnconfigure(0, minsize=0)
+            order = self.layout_orders["single"]
+            for row, name in enumerate(order):
+                self.section_frames[name].grid(
+                    row=row,
+                    column=0,
+                    columnspan=1,
+                    sticky="ew",
+                    padx=grid_pad_x,
+                    pady=grid_pad_y,
+                )
+            if previous_mode != "single":
+                self._set_section_collapsed(SECTION_ADVANCED, True)
+        else:
+            grid_pad_x = 6 if layout_mode == "compact" else 8
+            grid_pad_y = 6 if layout_mode == "compact" else 8
+            if layout_mode == "compact":
+                self.layout_frame.columnconfigure(0, weight=5, minsize=500)
+                self.layout_frame.columnconfigure(1, weight=6, minsize=560)
+            else:
+                self.layout_frame.columnconfigure(0, weight=4, minsize=480)
+                self.layout_frame.columnconfigure(1, weight=7, minsize=680)
+            order = self.layout_orders["compact" if layout_mode == "compact" else "wide"]
+            slot_specs = (
+                {"row": 0, "column": 0, "columnspan": 1},
+                {"row": 0, "column": 1, "columnspan": 1},
+                {"row": 1, "column": 0, "columnspan": 1},
+                {"row": 1, "column": 1, "columnspan": 1},
+                {"row": 2, "column": 0, "columnspan": 2},
+            )
+            for name, slot in zip(order, slot_specs):
+                self.section_frames[name].grid(
+                    row=slot["row"],
+                    column=slot["column"],
+                    columnspan=slot["columnspan"],
+                    sticky="ew",
+                    padx=grid_pad_x,
+                    pady=grid_pad_y,
+                )
+            if previous_mode == "single" or self.collapsed_sections.get(SECTION_ADVANCED, False):
+                self._set_section_collapsed(SECTION_ADVANCED, False)
+
+        self._update_visual_density(layout_mode, width)
+        self._update_wraplengths(layout_mode)
+        self._update_frame_bar_layouts(layout_mode)
+        if self.drag_active and layout_mode != "single":
+            self._update_docking_guides()
+        else:
+            self._hide_docking_guides()
+        self._handle_body_frame_configure(None)
+
+    def _update_visual_density(self, layout_mode: str, width: int):
+        if self.header_title_label is not None:
+            self.header_title_label.config(
+                font=("Microsoft YaHei UI", 11 if layout_mode == "single" else 13, "bold"),
+            )
+        if self.status_lbl is not None:
+            self.status_lbl.config(
+                font=("Consolas", 9 if layout_mode == "single" else 10, "bold"),
+                padx=10 if layout_mode == "single" else 12,
+                pady=4 if layout_mode == "single" else 5,
+            )
+
+        title_font_size = 9 if layout_mode == "single" else 10
+        for label in self.section_titles.values():
+            label.config(font=("Microsoft YaHei UI", title_font_size, "bold"))
+        for label in self.section_drag_labels.values():
+            label.config(
+                font=("Microsoft YaHei UI", 7 if layout_mode == "single" else 8),
+                fg=TEXT_SEC if not self.drag_active else ACCENT,
+            )
+        for guide in self.docking_guides.values():
+            guide.config(font=("Microsoft YaHei UI", 8 if layout_mode == "single" else 9, "bold"))
+
+        if hasattr(self, "log_text"):
+            self.log_text.config(height=10 if layout_mode == "single" else 12 if layout_mode == "compact" else 14)
+        if hasattr(self, "imu_text"):
+            self.imu_text.config(height=8 if layout_mode == "single" else 9 if layout_mode == "compact" else 10)
+        for badge_name, badge in self.runtime_badges.items():
+            badge.config(
+                font=("Microsoft YaHei UI", 7 if layout_mode == "single" else 8, "bold"),
+                padx=8 if layout_mode == "single" else 10,
+                pady=3 if layout_mode == "single" else 4,
+            )
+        for label in self.metric_value_labels.values():
+            label.config(font=("Consolas", 10 if layout_mode == "single" else 11 if layout_mode == "compact" else 12, "bold"))
+
+    def _update_wraplengths(self, layout_mode: str):
+        width = max(self.root.winfo_width(), 360)
+        if layout_mode == "single":
+            status_wrap = max(220, width - 150)
+            hint_wrap = status_wrap
+        elif layout_mode == "compact":
+            status_wrap = 320
+            hint_wrap = 340
+        else:
+            status_wrap = 420
+            hint_wrap = 360
+
+        for label in self.status_value_labels:
+            label.config(wraplength=status_wrap)
+        if self.dpad_hint_label is not None:
+            self.dpad_hint_label.config(wraplength=hint_wrap)
+
+    def _update_frame_bar_layouts(self, layout_mode: str):
+        for wrap, columns in self.frame_bar_groups:
+            total = len(columns)
+            if layout_mode == "single":
+                columns_per_row = 4 if total <= 12 else 5
+                value_width = 3
+                value_font = ("Consolas", 10, "bold")
+                caption_font = ("Consolas", 6)
+            elif layout_mode == "compact":
+                columns_per_row = 6 if total <= 12 else 8
+                value_width = 4
+                value_font = ("Consolas", 10, "bold")
+                caption_font = ("Consolas", 7)
+            else:
+                columns_per_row = 11 if total <= 12 else 12
+                value_width = 4
+                value_font = ("Consolas", 11, "bold")
+                caption_font = ("Consolas", 7)
+
+            for column in range(12):
+                wrap.grid_columnconfigure(column, weight=1 if column < columns_per_row else 0, uniform="framebar")
+            for index, item in enumerate(columns):
+                children = item.winfo_children()
+                if len(children) >= 2:
+                    children[0].config(width=value_width, font=value_font)
+                    children[1].config(font=caption_font)
+                item.grid(
+                    row=index // columns_per_row,
+                    column=index % columns_per_row,
+                    padx=3 if layout_mode == "single" else 4,
+                    pady=3 if layout_mode == "single" else 4,
+                    sticky="nsew",
+                )
+
+    def _refresh_runtime_indicators(self):
+        port_name = self.port_var.get().strip() or "串口"
+        if self.connected:
+            conn_text = port_name if len(port_name) <= 12 else f"{port_name[:12]}..."
+            self._set_badge(self.status_lbl, conn_text, "#173126", SUCCESS)
+            self._set_badge(self.runtime_badges.get("connection_panel"), "串口在线", "#173126", SUCCESS)
+        else:
+            self._set_badge(self.status_lbl, "未连接", "#351c1c", DANGER)
+            self._set_badge(self.runtime_badges.get("connection_panel"), "串口离线", "#351c1c", DANGER)
+
+        if self.auto_send:
+            self._set_badge(self.runtime_badges.get("auto"), "连发开", "#16324a", ACCENT)
+            self._set_badge(self.runtime_badges.get("auto_panel"), "自动发送开启", "#16324a", ACCENT)
+        else:
+            self._set_badge(self.runtime_badges.get("auto"), "连发关", "#222831", TEXT_SEC)
+            self._set_badge(self.runtime_badges.get("auto_panel"), "自动发送关闭", "#222831", TEXT_SEC)
+
+        if self.log_writer is not None:
+            self._set_badge(self.runtime_badges.get("record"), "记录开", "#3a2412", WARNING)
+            self._set_badge(self.runtime_badges.get("record_panel"), "记录开启", "#3a2412", WARNING)
+        else:
+            self._set_badge(self.runtime_badges.get("record"), "记录关", "#222831", TEXT_SEC)
+            self._set_badge(self.runtime_badges.get("record_panel"), "记录关闭", "#222831", TEXT_SEC)
+
+        ack_count = len(self._pending_acks)
+        if ack_count:
+            self._set_badge(self.runtime_badges.get("ack"), f"ACK {ack_count}", "#3a2412", WARNING)
+        else:
+            self._set_badge(self.runtime_badges.get("ack"), "ACK 0", "#222831", TEXT_SEC)
 
     def _build_connection(self, parent: tk.Widget):
         card = self._card(parent, "串口配置")
+        card.columnconfigure(1, weight=1)
+        card.columnconfigure(3, weight=1)
 
-        row1 = tk.Frame(card, bg=PANEL)
-        row1.pack(fill="x", pady=(0, 6))
-        tk.Label(row1, text="端口", width=6, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
-        self.port_cb = ttk.Combobox(row1, textvariable=self.port_var, width=16, state="readonly")
-        self.port_cb.pack(side="left", padx=(4, 4))
-        ControlButton(row1, text="刷新", width=6, command=self._refresh_ports, hover_bg=ACCENT).pack(side="left")
+        tk.Label(card, text="端口", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
+        self.port_cb = ttk.Combobox(card, textvariable=self.port_var, state="readonly")
+        self.port_cb.grid(row=0, column=1, sticky="ew", padx=(8, 8), pady=(0, 8))
+        ttk.Button(card, text="刷新", style="Secondary.TButton", command=self._refresh_ports).grid(
+            row=0,
+            column=2,
+            sticky="ew",
+            pady=(0, 8),
+        )
 
-        row2 = tk.Frame(card, bg=PANEL)
-        row2.pack(fill="x", pady=(0, 6))
-        tk.Label(row2, text="波特率", width=6, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+        tk.Label(card, text="波特率", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=1, column=0, sticky="w")
         self.baud_cb = ttk.Combobox(
-            row2,
+            card,
             textvariable=self.baud_var,
-            width=12,
             state="readonly",
             values=["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"],
         )
-        self.baud_cb.pack(side="left", padx=(4, 4))
+        self.baud_cb.grid(row=1, column=1, sticky="ew", padx=(8, 8))
 
-        tk.Label(row2, text="超时", width=4, anchor="e", bg=PANEL, fg=TEXT_SEC).pack(side="left", padx=(10, 0))
-        tk.Entry(
-            row2,
-            textvariable=self.timeout_var,
-            width=6,
-            bg=BTN_BG,
-            fg=TEXT_PRI,
-            insertbackground=TEXT_PRI,
-            relief="flat",
-        ).pack(side="left", padx=(4, 0))
+        tk.Label(card, text="超时(s)", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=1, column=2, sticky="w")
+        timeout_entry = ttk.Entry(card, textvariable=self.timeout_var, style="Dark.TEntry")
+        timeout_entry.grid(row=1, column=3, sticky="ew")
 
-        self.conn_btn = ControlButton(
+        self.conn_btn = ttk.Button(
             card,
             text="连接串口",
-            font=("Microsoft YaHei UI", 10, "bold"),
-            bg="#1f6feb",
-            hover_bg="#388bfd",
+            style="Primary.TButton",
             command=self._toggle_connection,
         )
-        self.conn_btn.pack(fill="x", pady=(6, 0))
+        self.conn_btn.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(10, 0))
 
     def _build_status(self, parent: tk.Widget):
-        card = self._card(parent, "运行状态")
+        card = self._card(parent, "运行摘要")
+
+        metrics = tk.Frame(card, bg=PANEL)
+        metrics.pack(fill="x", pady=(0, 10))
+        for column in range(2):
+            metrics.grid_columnconfigure(column, weight=1, uniform="metric")
+
+        metric_specs = (
+            ("tx", "发送帧数", self.tx_count_var, ACCENT),
+            ("rx", "接收帧数", self.rx_count_var, SUCCESS),
+            ("send", "最近发送", self.last_send_var, ACCENT2),
+            ("battery", "电池状态", self.battery_var, WARNING),
+        )
+        for index, (key, title, variable, color) in enumerate(metric_specs):
+            panel = tk.Frame(metrics, bg="#0f141b", highlightbackground=BORDER, highlightthickness=1)
+            panel.grid(row=index // 2, column=index % 2, sticky="nsew", padx=4, pady=4)
+            tk.Label(
+                panel,
+                text=title,
+                bg="#0f141b",
+                fg=TEXT_DIM,
+                anchor="w",
+                font=("Microsoft YaHei UI", 8),
+            ).pack(fill="x", padx=10, pady=(8, 2))
+            value_label = tk.Label(
+                panel,
+                textvariable=variable,
+                bg="#0f141b",
+                fg=color,
+                anchor="w",
+                font=("Consolas", 12, "bold"),
+            )
+            value_label.pack(fill="x", padx=10, pady=(0, 8))
+            self.metric_value_labels[key] = value_label
 
         rows = (
-            ("发送计数", self.tx_count_var),
-            ("接收计数", self.rx_count_var),
-            ("最近发送", self.last_send_var),
             ("接收状态", self.rx_state_var),
             ("最近上行", self.rx_value_var),
         )
         for title, variable in rows:
             row = tk.Frame(card, bg=PANEL)
             row.pack(fill="x", pady=2)
-            tk.Label(row, text=title, width=8, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
-            tk.Label(
+            row.columnconfigure(1, weight=1)
+            tk.Label(row, text=title, anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
+            value_label = tk.Label(
                 row,
                 textvariable=variable,
                 anchor="w",
@@ -385,8 +1042,9 @@ class WheeltecController:
                 bg=PANEL,
                 fg=TEXT_PRI if title != "接收状态" else WARNING,
                 font=("Consolas", 9),
-                wraplength=220,
-            ).pack(side="left", fill="x", expand=True)
+            )
+            value_label.grid(row=0, column=1, sticky="ew", padx=(12, 0))
+            self.status_value_labels.append(value_label)
 
     def _build_speed_panel(self, parent: tk.Widget):
         card = self._card(parent, "速度设置")
@@ -395,8 +1053,18 @@ class WheeltecController:
             axis_var = getattr(self, f"{axis_name}_var")
             row = tk.Frame(card, bg=PANEL)
             row.pack(fill="x", pady=(0, 2))
+            row.columnconfigure(1, weight=1)
 
-            tk.Label(row, text=label, width=8, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+            tk.Label(row, text=label, anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
+
+            entry = ttk.Entry(row, width=8, justify="center", style="Dark.TEntry")
+            entry.insert(0, "0")
+            entry.grid(row=0, column=1, sticky="e", padx=(8, 8))
+            entry.bind("<Return>", lambda _e, n=axis_name: self._apply_entry_value(n))
+            entry.bind("<FocusOut>", lambda _e, n=axis_name: self._apply_entry_value(n))
+            self.speed_entries[axis_name] = entry
+
+            tk.Label(row, text=unit, anchor="e", bg=PANEL, fg=TEXT_DIM).grid(row=0, column=2, sticky="e")
             value_label = tk.Label(
                 row,
                 text="0",
@@ -406,25 +1074,8 @@ class WheeltecController:
                 fg=ACCENT,
                 font=("Consolas", 10, "bold"),
             )
-            value_label.pack(side="right")
+            value_label.grid(row=0, column=3, sticky="e", padx=(12, 0))
             self.speed_labels[axis_name] = value_label
-
-            tk.Label(row, text=unit, width=8, anchor="e", bg=PANEL, fg=TEXT_DIM).pack(side="right", padx=(0, 6))
-
-            entry = tk.Entry(
-                row,
-                width=7,
-                justify="center",
-                bg=BTN_BG,
-                fg=TEXT_PRI,
-                insertbackground=TEXT_PRI,
-                relief="flat",
-            )
-            entry.insert(0, "0")
-            entry.pack(side="right", padx=(0, 8))
-            entry.bind("<Return>", lambda _e, n=axis_name: self._apply_entry_value(n))
-            entry.bind("<FocusOut>", lambda _e, n=axis_name: self._apply_entry_value(n))
-            self.speed_entries[axis_name] = entry
 
             scale = tk.Scale(
                 card,
@@ -441,237 +1092,220 @@ class WheeltecController:
                 bd=0,
                 showvalue=False,
             )
-            scale.pack(fill="x", pady=(0, 4))
+            scale.pack(fill="x", pady=(0, 6))
             self.speed_scales[axis_name] = scale
 
         step_row = tk.Frame(card, bg=PANEL)
         step_row.pack(fill="x", pady=(8, 0))
-        tk.Label(step_row, text="按键步进", width=8, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+        tk.Label(step_row, text="按键步进", anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
         for step in (50, 100, 200, 500):
-            ControlButton(
+            ttk.Button(
                 step_row,
                 text=str(step),
+                style="Secondary.TButton",
                 width=4,
-                command=lambda s=step: self.step_var.set(s),
-                hover_bg=ACCENT,
-                font=("Consolas", 9),
-            ).pack(side="left", padx=2)
-        tk.Label(step_row, textvariable=self.step_var, bg=PANEL, fg=ACCENT2, font=("Consolas", 10, "bold")).pack(side="left", padx=(8, 0))
+                command=lambda value=step: self.step_var.set(value),
+            ).pack(side="left", padx=(8 if step == 50 else 4, 0))
+        tk.Label(step_row, textvariable=self.step_var, bg=PANEL, fg=ACCENT2, font=("Consolas", 10, "bold")).pack(side="left", padx=(10, 0))
 
-        ControlButton(
-            card,
-            text="全部清零",
-            bg=BORDER,
-            hover_bg=DANGER,
-            command=self._zero_speeds,
-            font=("Microsoft YaHei UI", 9),
-        ).pack(fill="x", pady=(8, 0))
+        ttk.Button(card, text="全部清零", style="Secondary.TButton", command=self._zero_speeds).pack(
+            fill="x",
+            pady=(10, 0),
+        )
 
     def _build_mode_panel(self, parent: tk.Widget):
         card = self._card(parent, "控制模式")
+        card.columnconfigure(1, weight=1)
 
-        mode_row = tk.Frame(card, bg=PANEL)
-        mode_row.pack(fill="x", pady=(0, 4))
-        tk.Label(mode_row, text="Mode", width=6, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+        tk.Label(card, text="Mode", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
         self.mode_cb = ttk.Combobox(
-            mode_row,
+            card,
             textvariable=self.mode_var,
-            width=18,
             state="readonly",
             values=list(CONTROL_MODES.keys()),
         )
-        self.mode_cb.pack(side="left", padx=(4, 0))
+        self.mode_cb.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 8))
         self.mode_cb.current(0)
 
         preset_row = tk.Frame(card, bg=PANEL)
-        preset_row.pack(fill="x", pady=(0, 4))
-        tk.Label(preset_row, text="预设速度", width=6, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+        preset_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        tk.Label(preset_row, text="预设速度", anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
         for name, step in SPEED_PRESETS:
-            ControlButton(
+            ttk.Button(
                 preset_row,
                 text=name,
-                width=4,
-                command=lambda s=step: self.step_var.set(s),
-                hover_bg=ACCENT2,
-                font=("Microsoft YaHei UI", 8),
-            ).pack(side="left", padx=2)
+                style="Secondary.TButton",
+                width=5,
+                command=lambda value=step: self.step_var.set(value),
+            ).pack(side="left", padx=4)
 
-        reconnect_row = tk.Frame(card, bg=PANEL)
-        reconnect_row.pack(fill="x")
-        tk.Checkbutton(
-            reconnect_row,
+        ttk.Checkbutton(
+            card,
             text="断线自动重连",
             variable=self.auto_reconnect_var,
-            bg=PANEL,
-            fg=TEXT_SEC,
-            selectcolor=BTN_BG,
-            activebackground=PANEL,
-            activeforeground=TEXT_PRI,
-        ).pack(side="left")
+            style="Dark.TCheckbutton",
+        ).grid(row=2, column=0, columnspan=2, sticky="w")
 
     def _build_dpad(self, parent: tk.Widget):
         card = self._card(parent, "方向控制 (WASD / QE)")
 
         grid = tk.Frame(card, bg=PANEL)
         grid.pack()
+        for column in range(4):
+            grid.grid_columnconfigure(column, weight=1)
 
         pad_cfg = (
-            ("↖", 0, 0, lambda: self._set_vel(1, 1, 0)),
-            ("↑", 0, 1, lambda: self._set_vel(1, 0, 0)),
-            ("↗", 0, 2, lambda: self._set_vel(1, -1, 0)),
-            ("⟲", 0, 3, lambda: self._set_vel(0, 0, 1)),
-            ("←", 1, 0, lambda: self._set_vel(0, 1, 0)),
-            ("■", 1, 1, self._emergency_stop),
-            ("→", 1, 2, lambda: self._set_vel(0, -1, 0)),
-            ("⟳", 1, 3, lambda: self._set_vel(0, 0, -1)),
-            ("↙", 2, 0, lambda: self._set_vel(-1, 1, 0)),
-            ("↓", 2, 1, lambda: self._set_vel(-1, 0, 0)),
-            ("↘", 2, 2, lambda: self._set_vel(-1, -1, 0)),
+            ("↖", 0, 0, lambda: self._set_vel(1, 1, 0), "Pad.TButton"),
+            ("↑", 0, 1, lambda: self._set_vel(1, 0, 0), "Pad.TButton"),
+            ("↗", 0, 2, lambda: self._set_vel(1, -1, 0), "Pad.TButton"),
+            ("⟲", 0, 3, lambda: self._set_vel(0, 0, 1), "Pad.TButton"),
+            ("←", 1, 0, lambda: self._set_vel(0, 1, 0), "Pad.TButton"),
+            ("■", 1, 1, self._emergency_stop, "PadDanger.TButton"),
+            ("→", 1, 2, lambda: self._set_vel(0, -1, 0), "Pad.TButton"),
+            ("⟳", 1, 3, lambda: self._set_vel(0, 0, -1), "Pad.TButton"),
+            ("↙", 2, 0, lambda: self._set_vel(-1, 1, 0), "Pad.TButton"),
+            ("↓", 2, 1, lambda: self._set_vel(-1, 0, 0), "Pad.TButton"),
+            ("↘", 2, 2, lambda: self._set_vel(-1, -1, 0), "Pad.TButton"),
         )
 
-        for text, row, column, command in pad_cfg:
-            bg = DANGER if text == "■" else BTN_BG
-            hover = DANGER if text == "■" else "#1f6feb"
-            ControlButton(
-                grid,
-                text=text,
-                width=3,
-                command=command,
-                bg=bg,
-                hover_bg=hover,
-                font=("Consolas", 15, "bold"),
-            ).grid(row=row, column=column, padx=3, pady=3)
+        for text, row, column, command, style in pad_cfg:
+            ttk.Button(grid, text=text, width=3, style=style, command=command).grid(
+                row=row,
+                column=column,
+                padx=4,
+                pady=4,
+                sticky="nsew",
+            )
 
-        tk.Label(
+        self.dpad_hint_label = tk.Label(
             card,
             text="回车发送一次，空格急停；按方向按钮会按当前步进直接设置速度值。",
             bg=PANEL,
             fg=TEXT_DIM,
             font=("Microsoft YaHei UI", 8),
-            wraplength=240,
             justify="left",
-        ).pack(pady=(4, 0), anchor="w")
+        )
+        self.dpad_hint_label.pack(pady=(6, 0), anchor="w")
 
     def _build_send_panel(self, parent: tk.Widget):
         card = self._card(parent, "发送控制")
+        card.columnconfigure(1, weight=1)
+        card.columnconfigure(2, weight=1)
 
-        row = tk.Frame(card, bg=PANEL)
-        row.pack(fill="x", pady=(0, 6))
-        tk.Label(row, text="周期(s)", width=8, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
-        tk.Entry(
-            row,
-            textvariable=self.auto_interval_var,
-            width=7,
-            bg=BTN_BG,
-            fg=TEXT_PRI,
-            insertbackground=TEXT_PRI,
-            relief="flat",
-        ).pack(side="left")
+        tk.Label(card, text="周期(s)", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
+        interval_entry = ttk.Entry(card, textvariable=self.auto_interval_var, style="Dark.TEntry")
+        interval_entry.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 8))
 
-        opt_row = tk.Frame(card, bg=PANEL)
-        opt_row.pack(fill="x", pady=(0, 6))
-        tk.Checkbutton(
-            opt_row,
+        ttk.Checkbutton(
+            card,
             text="速度变化自动发送",
             variable=self.auto_send_on_change_var,
-            bg=PANEL,
-            fg=TEXT_SEC,
-            selectcolor=BTN_BG,
-            activebackground=PANEL,
-            activeforeground=TEXT_PRI,
-        ).pack(side="left")
-        tk.Label(
-            opt_row,
-            text="防抖 80ms",
-            bg=PANEL,
-            fg=TEXT_DIM,
-            font=("Microsoft YaHei UI", 8),
-        ).pack(side="right")
+            style="Dark.TCheckbutton",
+        ).grid(row=1, column=0, columnspan=2, sticky="w")
+        tk.Label(card, text="防抖 80ms", bg=PANEL, fg=TEXT_DIM, font=("Microsoft YaHei UI", 8)).grid(
+            row=1,
+            column=2,
+            sticky="e",
+            padx=(12, 0),
+        )
 
         btn_row = tk.Frame(card, bg=PANEL)
-        btn_row.pack(fill="x")
-        ControlButton(
-            btn_row,
-            text="发送一次",
-            command=self._send_once,
-            bg="#1f6feb",
-            hover_bg="#388bfd",
-            font=("Microsoft YaHei UI", 9, "bold"),
-        ).pack(side="left", expand=True, fill="x", padx=(0, 4))
+        btn_row.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        for column in range(3):
+            btn_row.grid_columnconfigure(column, weight=1)
 
-        self.auto_btn = ControlButton(
+        ttk.Button(btn_row, text="发送一次", style="Primary.TButton", command=self._send_once).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(0, 4),
+        )
+
+        self.auto_btn = ttk.Button(
             btn_row,
             text="连续发送",
+            style="Secondary.TButton",
             command=self._toggle_auto,
-            bg=BORDER,
-            hover_bg=SUCCESS,
-            font=("Microsoft YaHei UI", 9, "bold"),
         )
-        self.auto_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        self.auto_btn.grid(row=0, column=1, sticky="ew", padx=4)
 
-        ControlButton(
-            btn_row,
-            text="急停发送",
-            command=self._emergency_stop,
-            bg="#5c1d1d",
-            hover_bg=DANGER,
-            font=("Microsoft YaHei UI", 9, "bold"),
-        ).pack(side="left", expand=True, fill="x")
+        ttk.Button(btn_row, text="急停发送", style="Danger.TButton", command=self._emergency_stop).grid(
+            row=0,
+            column=2,
+            sticky="ew",
+            padx=(4, 0),
+        )
 
     def _build_dashboard(self, parent: tk.Widget):
-        card = self._card(parent, "传感器数据面板")
-        card.pack(fill="x", pady=(0, 8))
+        card = self._card(parent, "实时状态")
 
-        # 电池状态行
+        badge_row = tk.Frame(card, bg=PANEL)
+        badge_row.pack(fill="x", pady=(0, 10))
+        self.runtime_badges["connection_panel"] = self._create_badge(badge_row, "串口离线", bg="#351c1c", fg=DANGER)
+        self.runtime_badges["connection_panel"].pack(side="left", padx=(0, 6))
+        self.runtime_badges["auto_panel"] = self._create_badge(badge_row, "自动发送关闭", bg="#222831", fg=TEXT_SEC)
+        self.runtime_badges["auto_panel"].pack(side="left", padx=6)
+        self.runtime_badges["record_panel"] = self._create_badge(badge_row, "记录关闭", bg="#222831", fg=TEXT_SEC)
+        self.runtime_badges["record_panel"].pack(side="left", padx=6)
+
         bat_row = tk.Frame(card, bg=PANEL)
-        bat_row.pack(fill="x", pady=(0, 4))
-        tk.Label(bat_row, text="电池", width=6, anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+        bat_row.pack(fill="x")
+        bat_row.columnconfigure(1, weight=1)
+
+        tk.Label(bat_row, text="电池", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
         self.battery_bar = ttk.Progressbar(
-            bat_row, length=120, mode="determinate",
+            bat_row,
+            mode="determinate",
+            style="Battery.Horizontal.TProgressbar",
             variable=tk.DoubleVar(value=0),
         )
-        self.battery_bar.pack(side="left", padx=(4, 4))
-        tk.Label(bat_row, textvariable=self.battery_var, width=8, anchor="e",
-                 bg=PANEL, fg=SUCCESS, font=("Consolas", 10, "bold")).pack(side="left")
-        tk.Label(bat_row, textvariable=self.battery_pct_var, width=5, anchor="e",
-                 bg=PANEL, fg=TEXT_DIM, font=("Consolas", 9)).pack(side="left")
+        self.battery_bar.grid(row=0, column=1, sticky="ew", padx=(10, 10))
+        tk.Label(
+            bat_row,
+            textvariable=self.battery_var,
+            width=8,
+            anchor="e",
+            bg=PANEL,
+            fg=SUCCESS,
+            font=("Consolas", 10, "bold"),
+        ).grid(row=0, column=2, sticky="e")
+        tk.Label(
+            bat_row,
+            textvariable=self.battery_pct_var,
+            width=5,
+            anchor="e",
+            bg=PANEL,
+            fg=TEXT_DIM,
+            font=("Consolas", 9),
+        ).grid(row=0, column=3, sticky="e", padx=(8, 0))
 
-        # IMU 数据显示
+    def _build_imu_panel(self, parent: tk.Widget):
+        card = self._card(parent, "详细 IMU / 速度")
         imu_card = tk.Frame(card, bg="#0a0e13", highlightbackground=BORDER, highlightthickness=1)
-        imu_card.pack(fill="x", pady=(0, 4))
+        imu_card.pack(fill="x")
 
         self.imu_text = tk.Text(
-            imu_card, height=10, bg="#0a0e13", fg=ACCENT,
-            font=("Consolas", 9), relief="flat", bd=0,
-            insertbackground=TEXT_PRI, state="disabled",
+            imu_card,
+            height=10,
+            bg="#0a0e13",
+            fg=ACCENT,
+            font=("Consolas", 9),
+            relief="flat",
+            bd=0,
+            insertbackground=TEXT_PRI,
+            state="disabled",
         )
         self.imu_text.pack(fill="x", padx=6, pady=6)
 
-        # 日志记录控制
-        log_row = tk.Frame(card, bg=PANEL)
-        log_row.pack(fill="x")
-        self.log_btn = ControlButton(
-            log_row,
-            text="开始记录",
-            command=self._toggle_logging,
-            bg=BORDER,
-            hover_bg=SUCCESS,
-            font=("Microsoft YaHei UI", 8, "bold"),
-        )
-        self.log_btn.pack(side="left")
-
     def _build_frame_preview(self, parent: tk.Widget):
         card = self._card(parent, "下行数据帧预览")
-        card.pack(fill="x", pady=(0, 8))
-
         self.byte_labels = self._build_frame_bar(
             card,
-            ("帧头", "预留", "预留", "Vx_H", "Vx_L", "Vy_H", "Vy_L", "Vz_H", "Vz_L", "BCC", "帧尾"),
+            ("帧头", "Mode", "预留", "Vx_H", "Vx_L", "Vy_H", "Vy_L", "Vz_H", "Vz_L", "BCC", "帧尾"),
         )
 
     def _build_rx_preview(self, parent: tk.Widget):
-        card = self._card(parent, "最近上行数据帧 (24字节)")
-        card.pack(fill="x", pady=(0, 8))
+        card = self._card(parent, "最近上行数据帧")
 
         rx_fields = (
             "HEAD", "Flag", "Vx_H", "Vx_L", "Vy_H", "Vy_L", "Vz_H", "Vz_L",
@@ -687,9 +1321,9 @@ class WheeltecController:
         wrap.pack(fill="x", padx=4, pady=4)
 
         labels: list[tk.Label] = []
+        columns: list[tk.Frame] = []
         for field in fields:
             col = tk.Frame(wrap, bg="#0a0e13")
-            col.pack(side="left", padx=5, pady=6)
             value = tk.Label(
                 col,
                 text="00",
@@ -701,14 +1335,28 @@ class WheeltecController:
             value.pack()
             tk.Label(col, text=field, bg="#0a0e13", fg=TEXT_DIM, font=("Consolas", 7)).pack()
             labels.append(value)
+            columns.append(col)
+
+        self.frame_bar_groups.append((wrap, columns))
         return labels
 
     def _build_log(self, parent: tk.Widget):
-        card = self._card(parent, "通信日志")
-        card.pack(fill="both", expand=True)
+        card = self._card(parent, "日志窗口", expand=True)
+
+        toolbar = tk.Frame(card, bg=PANEL)
+        toolbar.pack(fill="x", pady=(0, 6))
+        self.log_btn = ttk.Button(
+            toolbar,
+            text="开始记录",
+            style="Secondary.TButton",
+            command=self._toggle_logging,
+        )
+        self.log_btn.pack(side="left")
+        ttk.Button(toolbar, text="清空日志", style="Secondary.TButton", command=self._clear_log).pack(side="right")
 
         self.log_text = scrolledtext.ScrolledText(
             card,
+            height=14,
             bg="#0a0e13",
             fg=TEXT_SEC,
             font=("Consolas", 9),
@@ -725,31 +1373,22 @@ class WheeltecController:
         self.log_text.tag_config("warn", foreground=WARNING)
         self.log_text.tag_config("err", foreground=DANGER)
         self.log_text.tag_config("inf", foreground=TEXT_PRI)
-        self.log_text.tag_config("ack_ok", foreground=SUCCESS)     # ACK成功-绿色
-        self.log_text.tag_config("ack_fail", foreground=DANGER)   # ACK失败-红色
-        self.log_text.tag_config("pending", foreground=PENDING)   # 待确认-橙色
+        self.log_text.tag_config("ack_ok", foreground=SUCCESS)
+        self.log_text.tag_config("ack_fail", foreground=DANGER)
+        self.log_text.tag_config("pending", foreground=PENDING)
 
-        ControlButton(
-            card,
-            text="清空日志",
-            command=self._clear_log,
-            bg=BORDER,
-            hover_bg=DANGER,
-            font=("Microsoft YaHei UI", 8),
-        ).pack(anchor="e", pady=(4, 0))
-
-    def _card(self, parent: tk.Widget, title: str) -> tk.Frame:
-        outer = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
-        outer.pack(fill="x", pady=(0, 8))
+    def _card(self, parent: tk.Widget, title: str, expand: bool = False) -> tk.Frame:
+        outer = tk.Frame(parent, bg="#11161d", highlightbackground=BORDER, highlightthickness=1)
+        outer.pack(fill="both" if expand else "x", expand=expand, pady=(0, 8))
         tk.Label(
             outer,
             text=f"  {title}",
-            bg=PANEL,
+            bg="#11161d",
             fg=TEXT_SEC,
             anchor="w",
             font=("Microsoft YaHei UI", 8, "bold"),
         ).pack(fill="x", pady=(6, 2))
-        tk.Frame(outer, bg=BORDER, height=1).pack(fill="x")
+        ttk.Separator(outer, orient="horizontal").pack(fill="x")
         inner = tk.Frame(outer, bg=PANEL)
         inner.pack(fill="both", expand=True, padx=10, pady=8)
         return inner
@@ -935,9 +1574,9 @@ class WheeltecController:
         self.last_sent_payload = None
         self._pending_acks.clear()
         self._acked_line_ids.clear()
-        self.conn_btn.config(text="断开串口", bg=DANGER, activebackground="#b91c1c")
-        self.status_lbl.config(text=f"● {port} @ {baud}", fg=SUCCESS)
+        self.conn_btn.config(text="断开串口", style="Danger.TButton")
         self.rx_state_var.set("已连接，等待数据")
+        self._refresh_runtime_indicators()
         self._log(f"已连接 {port}，波特率 {baud}，超时 {timeout:.2f}s", "inf")
 
         self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -970,10 +1609,10 @@ class WheeltecController:
             finally:
                 self.ser = None
 
-        self.auto_btn.config(text="连续发送", bg=BORDER, activebackground=SUCCESS)
-        self.conn_btn.config(text="连接串口", bg="#1f6feb", activebackground="#388bfd")
-        self.status_lbl.config(text="● 未连接", fg=DANGER)
+        self.auto_btn.config(text="连续发送", style="Secondary.TButton")
+        self.conn_btn.config(text="连接串口", style="Primary.TButton")
         self.rx_state_var.set("串口已断开")
+        self._refresh_runtime_indicators()
 
         log_msg = reason if reason else "串口已断开"
         self._log(log_msg, "warn" if reason else "inf")
@@ -997,9 +1636,9 @@ class WheeltecController:
             self.last_sent_payload = None
             self._pending_acks.clear()
             self._acked_line_ids.clear()
-            self.conn_btn.config(text="断开串口", bg=DANGER, activebackground="#b91c1c")
-            self.status_lbl.config(text=f"● {port} @ {baud} (重连)", fg=SUCCESS)
+            self.conn_btn.config(text="断开串口", style="Danger.TButton")
             self.rx_state_var.set("重连成功，等待数据")
+            self._refresh_runtime_indicators()
             self._log("自动重连成功", "inf")
             self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self.read_thread.start()
@@ -1166,6 +1805,7 @@ class WheeltecController:
 
         log_line_id, _ = self._pending_acks.pop(payload)
         self._acked_line_ids.add(log_line_id)
+        self._refresh_runtime_indicators()
         self.root.after(0, lambda: self._update_log_line_color(log_line_id, "ack_ok"))
 
     def _update_log_line_color(self, line_id: int, tag: str):
@@ -1199,6 +1839,7 @@ class WheeltecController:
                 self._acked_line_ids.add(log_line_id)
                 self._pending_acks.pop(payload, None)
                 self._update_log_line_color(log_line_id, "ack_fail")
+        self._refresh_runtime_indicators()
 
         # 继续检查
         self._ack_check_job = self.root.after(100, self._check_ack_timeout)
@@ -1230,6 +1871,7 @@ class WheeltecController:
         # 记录待确认的发送
         payload = (frame_obj.mode, frame_obj.vx, frame_obj.vy, frame_obj.vz)
         self._pending_acks[payload] = (current_line_count, time.time() * 1000)
+        self._refresh_runtime_indicators()
 
         # 启动ACK超时检查（如果还没启动）
         if self._ack_check_job is None:
@@ -1244,11 +1886,12 @@ class WheeltecController:
     def _toggle_logging(self):
         if self.log_writer is not None:
             # 停止记录
-            self.log_btn.config(text="开始记录", bg=BORDER, activebackground=SUCCESS)
+            self.log_btn.config(text="开始记录", style="Secondary.TButton")
             if self.log_file:
                 self.log_file.close()
             self.log_writer = None
             self.log_file = None
+            self._refresh_runtime_indicators()
             self._log("数据记录已停止", "inf")
             return
 
@@ -1276,13 +1919,15 @@ class WheeltecController:
             self.log_file = None
             return
 
-        self.log_btn.config(text="停止记录", bg=DANGER, activebackground=DANGER)
+        self.log_btn.config(text="停止记录", style="Danger.TButton")
+        self._refresh_runtime_indicators()
         self._log(f"数据记录已开始: {os.path.basename(path)}", "inf")
 
     def _toggle_auto(self):
         if self.auto_send:
             self.auto_send = False
-            self.auto_btn.config(text="连续发送", bg=BORDER, activebackground=SUCCESS)
+            self.auto_btn.config(text="连续发送", style="Secondary.TButton")
+            self._refresh_runtime_indicators()
             self._log("连续发送已停止", "inf")
             return
 
@@ -1297,7 +1942,8 @@ class WheeltecController:
             return
 
         self.auto_send = True
-        self.auto_btn.config(text="停止连发", bg=DANGER, activebackground=DANGER)
+        self.auto_btn.config(text="停止连发", style="Danger.TButton")
+        self._refresh_runtime_indicators()
         self._log(f"连续发送已启动，周期 {interval:.2f}s", "inf")
         self.auto_thread = threading.Thread(target=self._auto_loop, daemon=True)
         self.auto_thread.start()
@@ -1349,7 +1995,7 @@ class WheeltecController:
         except queue.Empty:
             pass
 
-        self.root.after(100, self._poll_log)
+        self.log_poll_job = self.root.after(100, self._poll_log)
 
     def _clear_log(self):
         self.log_text.config(state="normal")
@@ -1359,6 +2005,18 @@ class WheeltecController:
     def _on_close(self):
         self.ui_alive = False
         self.auto_send = False
+        if self.layout_job is not None:
+            try:
+                self.root.after_cancel(self.layout_job)
+            except tk.TclError:
+                pass
+            self.layout_job = None
+        if self.log_poll_job is not None:
+            try:
+                self.root.after_cancel(self.log_poll_job)
+            except tk.TclError:
+                pass
+            self.log_poll_job = None
         if self.connected:
             self._emergency_stop()
         self._disconnect()
@@ -1372,6 +2030,9 @@ class WheeltecController:
             # 简单电量估计（4S电池 14.8V满电 / 12V低压）
             pct = max(0, min(100, (voltage - 12.0) / (14.8 - 12.0) * 100))
             self.battery_pct_var.set(f"{pct:.0f}%")
+            battery_color = SUCCESS if pct >= 60 else WARNING if pct >= 30 else DANGER
+            if "battery" in self.metric_value_labels:
+                self.metric_value_labels["battery"].config(fg=battery_color)
             if hasattr(self, 'battery_bar'):
                 self.battery_bar['value'] = pct
 
@@ -1397,6 +2058,79 @@ class WheeltecController:
 def apply_dark_style():
     style = ttk.Style()
     style.theme_use("clam")
+    style.configure(".", background=PANEL, foreground=TEXT_PRI)
+    style.configure(
+        "TButton",
+        background=BTN_BG,
+        foreground=TEXT_PRI,
+        borderwidth=0,
+        focusthickness=0,
+        focuscolor=BTN_BG,
+        padding=(10, 6),
+    )
+    style.map(
+        "TButton",
+        background=[("active", "#2b3138"), ("pressed", "#161b22")],
+        foreground=[("disabled", TEXT_DIM)],
+    )
+    style.configure("Primary.TButton", background="#1f6feb", foreground="white")
+    style.map(
+        "Primary.TButton",
+        background=[("active", "#388bfd"), ("pressed", "#1a56c4")],
+    )
+    style.configure("Secondary.TButton", background=BTN_BG, foreground=TEXT_PRI)
+    style.map(
+        "Secondary.TButton",
+        background=[("active", "#30363d"), ("pressed", "#1c2128")],
+    )
+    style.configure("Danger.TButton", background="#7a2323", foreground="white")
+    style.map(
+        "Danger.TButton",
+        background=[("active", "#b62324"), ("pressed", "#871e1f")],
+    )
+    style.configure(
+        "Pad.TButton",
+        background=BTN_BG,
+        foreground=TEXT_PRI,
+        padding=(8, 10),
+        font=("Consolas", 14, "bold"),
+    )
+    style.map(
+        "Pad.TButton",
+        background=[("active", "#1f6feb"), ("pressed", "#194fb7")],
+    )
+    style.configure(
+        "PadDanger.TButton",
+        background="#6d1f1f",
+        foreground="white",
+        padding=(8, 10),
+        font=("Consolas", 14, "bold"),
+    )
+    style.map(
+        "PadDanger.TButton",
+        background=[("active", DANGER), ("pressed", "#a41d1d")],
+    )
+    style.configure(
+        "Ghost.TButton",
+        background=PANEL,
+        foreground=TEXT_SEC,
+        padding=(8, 3),
+    )
+    style.map(
+        "Ghost.TButton",
+        background=[("active", "#1c2128"), ("pressed", "#11161d")],
+        foreground=[("active", TEXT_PRI)],
+    )
+    style.configure(
+        "Dark.TEntry",
+        fieldbackground=BTN_BG,
+        foreground=TEXT_PRI,
+        insertcolor=TEXT_PRI,
+        bordercolor=BORDER,
+        lightcolor=BORDER,
+        darkcolor=BORDER,
+        padding=4,
+    )
     style.configure(
         "TCombobox",
         fieldbackground=BTN_BG,
@@ -1412,6 +2146,28 @@ def apply_dark_style():
         fieldbackground=[("readonly", BTN_BG)],
         foreground=[("readonly", TEXT_PRI)],
     )
+    style.configure(
+        "Dark.TCheckbutton",
+        background=PANEL,
+        foreground=TEXT_SEC,
+        indicatorbackground=BTN_BG,
+        indicatormargin=2,
+    )
+    style.map(
+        "Dark.TCheckbutton",
+        background=[("active", PANEL)],
+        foreground=[("active", TEXT_PRI)],
+        indicatorbackground=[("selected", ACCENT), ("!selected", BTN_BG)],
+    )
+    style.configure(
+        "Battery.Horizontal.TProgressbar",
+        troughcolor=BTN_BG,
+        background=SUCCESS,
+        bordercolor=BORDER,
+        lightcolor=SUCCESS,
+        darkcolor=SUCCESS,
+    )
+    style.configure("Vertical.TScrollbar", background=BTN_BG, troughcolor=BG, arrowcolor=TEXT_SEC)
 
 
 if __name__ == "__main__":
