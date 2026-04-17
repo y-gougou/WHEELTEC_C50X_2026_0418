@@ -12,16 +12,12 @@ WHEELTEC ROS 底盘串口上位机
     [Gyro_X_H][Gyro_X_L][Gyro_Y_H][Gyro_Y_L][Gyro_Z_H][Gyro_Z_L]
     [Power_H][Power_L][BCC][0x7D]
 
-Vx / Vy:
-    mm/s, 有符号 short, 大端
+协议字段说明:
+    Vx / Vy / Vz 均为有符号 short、大端、按 1000 倍缩放传输。
+    其中线速度通常按 m/s 显示，角速度通常按 rad/s 显示。
+    例如 1000 -> 1.000，对应固件中的 value / 1000 还原逻辑。
 
-Vz:
-    mrad/s, 有符号 short, 大端
-
-Accel:
-    原始有符号 short
-
-Gyro:
+Accel / Gyro:
     原始有符号 short
 
 Power_Voltage:
@@ -73,13 +69,6 @@ CONTROL_MODES = {
     "2: 自动回充+导航": 0x02,
     "3: 红外对接": 0x03,
 }
-
-SPEED_PRESETS = (
-    ("慢速", 50),
-    ("中速", 200),
-    ("快速", 500),
-    ("全速", 1000),
-)
 
 LAYOUT_WIDE_MIN = 1280
 LAYOUT_COMPACT_MIN = 900
@@ -178,11 +167,16 @@ def frame_to_hex(frame: bytes) -> str:
     return " ".join(f"{b:02X}" for b in frame)
 
 
+def scaled_to_unit(value: int) -> float:
+    """固件协议把速度/角速度统一按 1000 倍缩放传输。"""
+    return value / 1000.0
+
+
 class WheeltecController:
     AXIS_CONFIG = (
         ("vx", "Vx 前后", "mm/s", -2000, 2000, 10),
         ("vy", "Vy 左右", "mm/s", -2000, 2000, 10),
-        ("vz", "Vz 转向", "mrad/s", -3140, 3140, 10),
+        ("vz", "Vz 转向", "rad/s x1000", -3140, 3140, 10),
     )
 
     def __init__(self, root: tk.Tk):
@@ -204,19 +198,22 @@ class WheeltecController:
         self.vy_var = tk.IntVar(value=0)
         self.vz_var = tk.IntVar(value=0)
         self.step_var = tk.IntVar(value=100)
+        self.axis_entry_vars: dict[str, tk.StringVar] = {}
 
         self.port_var = tk.StringVar()
         self.baud_var = tk.StringVar(value="115200")
         self.timeout_var = tk.DoubleVar(value=0.10)
         self.auto_interval_var = tk.DoubleVar(value=0.10)
+        self.auto_send_delay_var = tk.IntVar(value=80)
         self.mode_var = tk.StringVar(value="0: 正常控制")
         self.auto_reconnect_var = tk.BooleanVar(value=False)
+        self.battery_cells_var = tk.StringVar(value="4S")
 
         self.tx_count_var = tk.StringVar(value="0")
         self.rx_count_var = tk.StringVar(value="0")
         self.last_send_var = tk.StringVar(value="未发送")
         self.rx_state_var = tk.StringVar(value="等待接收")
-        self.rx_value_var = tk.StringVar(value="Vx=0  Vy=0  Vz=0.000 rad/s")
+        self.rx_value_var = tk.StringVar(value="Vx=0.000 m/s  Vy=0.000 m/s  Vz=0.000 rad/s")
         self.battery_var = tk.StringVar(value="-- V")
         self.battery_pct_var = tk.StringVar(value="--%")
 
@@ -225,14 +222,15 @@ class WheeltecController:
         self.rx_count = 0
         self.last_rx_time = "-"
         self.keys_pressed: set[str] = set()
+        self.active_pointer_keys: set[str] = set()
         self.log_writer: csv.writer | None = None
         self.log_file: object | None = None
 
         # 自动发送策略
         self.auto_send_on_change_var = tk.BooleanVar(value=True)
-        self.auto_send_delay_ms = 80
         self.auto_send_job: str | None = None
         self.last_sent_payload: tuple[int, int, int, int] | None = None
+        self._mode_change_guard = False
 
         self.speed_scales: dict[str, tk.Scale] = {}
         self.speed_entries: dict[str, tk.Widget] = {}
@@ -271,11 +269,6 @@ class WheeltecController:
         self.drag_target_slot: str | None = None
         self.drag_target_section: str | None = None
 
-        # ========== ACK相关 ==========
-        self._pending_acks: dict = {}  # payload -> (log_line_id, send_time_ms)
-        self._ack_timeout_ms = 500     # ACK超时时间(ms)
-        self._ack_check_job: str | None = None  # ACK检查定时器
-        self._acked_line_ids: set = set()  # 已确认的行号集合
         self.layout_orders = {
             "wide": [SECTION_SERIAL, SECTION_STATUS, SECTION_MOTION, SECTION_ADVANCED, SECTION_LOG],
             "compact": [SECTION_SERIAL, SECTION_STATUS, SECTION_MOTION, SECTION_ADVANCED, SECTION_LOG],
@@ -363,8 +356,8 @@ class WheeltecController:
         self.runtime_badges["auto"].pack(side="left", padx=4)
         self.runtime_badges["record"] = self._create_badge(badge_frame, "记录关", bg="#222831", fg=TEXT_SEC)
         self.runtime_badges["record"].pack(side="left", padx=4)
-        self.runtime_badges["ack"] = self._create_badge(badge_frame, "ACK 0", bg="#222831", fg=TEXT_SEC)
-        self.runtime_badges["ack"].pack(side="left", padx=(4, 0))
+        self.runtime_badges["link"] = self._create_badge(badge_frame, "等待上行", bg="#222831", fg=TEXT_SEC)
+        self.runtime_badges["link"].pack(side="left", padx=(4, 0))
 
         ttk.Separator(header, orient="horizontal").grid(row=1, column=0, columnspan=3, sticky="ew")
 
@@ -495,6 +488,7 @@ class WheeltecController:
             fg=TEXT_PRI,
             anchor="w",
             font=("Microsoft YaHei UI", 10, "bold"),
+            cursor="fleur",
         )
         title_label.grid(row=0, column=0, sticky="w")
 
@@ -947,11 +941,12 @@ class WheeltecController:
             self._set_badge(self.runtime_badges.get("record"), "记录关", "#222831", TEXT_SEC)
             self._set_badge(self.runtime_badges.get("record_panel"), "记录关闭", "#222831", TEXT_SEC)
 
-        ack_count = len(self._pending_acks)
-        if ack_count:
-            self._set_badge(self.runtime_badges.get("ack"), f"ACK {ack_count}", "#3a2412", WARNING)
+        if self.connected and self.rx_count > 0:
+            self._set_badge(self.runtime_badges.get("link"), "上行正常", "#173126", SUCCESS)
+        elif self.connected:
+            self._set_badge(self.runtime_badges.get("link"), "等待上行", "#3a2412", WARNING)
         else:
-            self._set_badge(self.runtime_badges.get("ack"), "ACK 0", "#222831", TEXT_SEC)
+            self._set_badge(self.runtime_badges.get("link"), "链路离线", "#222831", TEXT_SEC)
 
     def _build_connection(self, parent: tk.Widget):
         card = self._card(parent, "串口配置")
@@ -1051,14 +1046,21 @@ class WheeltecController:
 
         for axis_name, label, unit, low, high, resolution in self.AXIS_CONFIG:
             axis_var = getattr(self, f"{axis_name}_var")
+            entry_var = tk.StringVar(value=str(axis_var.get()))
+            self.axis_entry_vars[axis_name] = entry_var
             row = tk.Frame(card, bg=PANEL)
             row.pack(fill="x", pady=(0, 2))
             row.columnconfigure(1, weight=1)
 
             tk.Label(row, text=label, anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
 
-            entry = ttk.Entry(row, width=8, justify="center", style="Dark.TEntry")
-            entry.insert(0, "0")
+            entry = ttk.Entry(
+                row,
+                width=8,
+                justify="center",
+                style="Dark.TEntry",
+                textvariable=entry_var,
+            )
             entry.grid(row=0, column=1, sticky="e", padx=(8, 8))
             entry.bind("<Return>", lambda _e, n=axis_name: self._apply_entry_value(n))
             entry.bind("<FocusOut>", lambda _e, n=axis_name: self._apply_entry_value(n))
@@ -1097,8 +1099,8 @@ class WheeltecController:
 
         step_row = tk.Frame(card, bg=PANEL)
         step_row.pack(fill="x", pady=(8, 0))
-        tk.Label(step_row, text="按键步进", anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
-        for step in (50, 100, 200, 500):
+        tk.Label(step_row, text="控制步进", anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
+        for step in (50, 100, 200, 500, 1000):
             ttk.Button(
                 step_row,
                 text=str(step),
@@ -1127,24 +1129,12 @@ class WheeltecController:
         self.mode_cb.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 8))
         self.mode_cb.current(0)
 
-        preset_row = tk.Frame(card, bg=PANEL)
-        preset_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        tk.Label(preset_row, text="预设速度", anchor="w", bg=PANEL, fg=TEXT_SEC).pack(side="left")
-        for name, step in SPEED_PRESETS:
-            ttk.Button(
-                preset_row,
-                text=name,
-                style="Secondary.TButton",
-                width=5,
-                command=lambda value=step: self.step_var.set(value),
-            ).pack(side="left", padx=4)
-
         ttk.Checkbutton(
             card,
             text="断线自动重连",
             variable=self.auto_reconnect_var,
             style="Dark.TCheckbutton",
-        ).grid(row=2, column=0, columnspan=2, sticky="w")
+        ).grid(row=1, column=0, columnspan=2, sticky="w")
 
     def _build_dpad(self, parent: tk.Widget):
         card = self._card(parent, "方向控制 (WASD / QE)")
@@ -1168,18 +1158,42 @@ class WheeltecController:
             ("↘", 2, 2, lambda: self._set_vel(-1, -1, 0), "Pad.TButton"),
         )
 
+        self.pointer_pad_map = {
+            "↖": (1, 1, 0),
+            "↑": (1, 0, 0),
+            "↗": (1, -1, 0),
+            "⟲": (0, 0, 1),
+            "←": (0, 1, 0),
+            "→": (0, -1, 0),
+            "⟳": (0, 0, -1),
+            "↙": (-1, 1, 0),
+            "↓": (-1, 0, 0),
+            "↘": (-1, -1, 0),
+        }
+
         for text, row, column, command, style in pad_cfg:
-            ttk.Button(grid, text=text, width=3, style=style, command=command).grid(
+            button = ttk.Button(
+                grid,
+                text=text,
+                width=3,
+                style=style,
+                command=command if text == "■" else None,
+            )
+            button.grid(
                 row=row,
                 column=column,
                 padx=4,
                 pady=4,
                 sticky="nsew",
             )
+            if text in self.pointer_pad_map:
+                button.bind("<ButtonPress-1>", lambda _e, key=text: self._start_pointer_motion(key))
+                button.bind("<ButtonRelease-1>", lambda _e, key=text: self._stop_pointer_motion(key))
+                button.bind("<Leave>", lambda _e, key=text: self._stop_pointer_motion(key))
 
         self.dpad_hint_label = tk.Label(
             card,
-            text="回车发送一次，空格急停；按方向按钮会按当前步进直接设置速度值。",
+            text="键盘按住 WASD / QE 持续运动；鼠标按住方向键运动、松手自动归零。回车发送一次，空格急停。",
             bg=PANEL,
             fg=TEXT_DIM,
             font=("Microsoft YaHei UI", 8),
@@ -1191,10 +1205,15 @@ class WheeltecController:
         card = self._card(parent, "发送控制")
         card.columnconfigure(1, weight=1)
         card.columnconfigure(2, weight=1)
+        card.columnconfigure(3, weight=1)
 
         tk.Label(card, text="周期(s)", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=0, sticky="w")
         interval_entry = ttk.Entry(card, textvariable=self.auto_interval_var, style="Dark.TEntry")
         interval_entry.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 8))
+
+        tk.Label(card, text="防抖(ms)", anchor="w", bg=PANEL, fg=TEXT_SEC).grid(row=0, column=2, sticky="w", padx=(12, 0))
+        debounce_entry = ttk.Entry(card, textvariable=self.auto_send_delay_var, style="Dark.TEntry", width=6)
+        debounce_entry.grid(row=0, column=3, sticky="ew", pady=(0, 8))
 
         ttk.Checkbutton(
             card,
@@ -1202,15 +1221,16 @@ class WheeltecController:
             variable=self.auto_send_on_change_var,
             style="Dark.TCheckbutton",
         ).grid(row=1, column=0, columnspan=2, sticky="w")
-        tk.Label(card, text="防抖 80ms", bg=PANEL, fg=TEXT_DIM, font=("Microsoft YaHei UI", 8)).grid(
+        tk.Label(card, textvariable=self.auto_send_delay_var, bg=PANEL, fg=TEXT_DIM, font=("Consolas", 8, "bold")).grid(
             row=1,
             column=2,
             sticky="e",
             padx=(12, 0),
         )
+        tk.Label(card, text="ms", bg=PANEL, fg=TEXT_DIM, font=("Microsoft YaHei UI", 8)).grid(row=1, column=3, sticky="w", padx=(4, 0))
 
         btn_row = tk.Frame(card, bg=PANEL)
-        btn_row.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        btn_row.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(10, 0))
         for column in range(3):
             btn_row.grid_columnconfigure(column, weight=1)
 
@@ -1247,6 +1267,15 @@ class WheeltecController:
         self.runtime_badges["auto_panel"].pack(side="left", padx=6)
         self.runtime_badges["record_panel"] = self._create_badge(badge_row, "记录关闭", bg="#222831", fg=TEXT_SEC)
         self.runtime_badges["record_panel"].pack(side="left", padx=6)
+        tk.Label(badge_row, text="电量按", bg=PANEL, fg=TEXT_DIM, font=("Microsoft YaHei UI", 8)).pack(side="right")
+        battery_cells_cb = ttk.Combobox(
+            badge_row,
+            textvariable=self.battery_cells_var,
+            state="readonly",
+            values=["3S", "4S", "6S"],
+            width=4,
+        )
+        battery_cells_cb.pack(side="right", padx=(6, 4))
 
         bat_row = tk.Frame(card, bg=PANEL)
         bat_row.pack(fill="x")
@@ -1397,6 +1426,7 @@ class WheeltecController:
         for axis_name, *_rest in self.AXIS_CONFIG:
             axis_var = getattr(self, f"{axis_name}_var")
             axis_var.trace_add("write", lambda *_args, name=axis_name: self._on_axis_change(name))
+        self.mode_cb.bind("<<ComboboxSelected>>", self._on_mode_selected)
 
     def _bind_shortcuts(self):
         # 多键同时支持：记录每个按键的按下状态
@@ -1421,11 +1451,7 @@ class WheeltecController:
         key = event.keysym.lower()
         if key in self.key_map:
             self.keys_pressed.discard(key)
-            # 若所有方向键释放且处于连续发送模式则自动停
-            if not self.keys_pressed:
-                pass  # 不自动清零，保留最后设置值
-            else:
-                self._apply_keyspeed()
+            self._apply_keyspeed()
 
     def _apply_keyspeed(self):
         """根据当前按下的键计算合成速度"""
@@ -1443,16 +1469,14 @@ class WheeltecController:
     def _on_axis_change(self, axis_name: str):
         value = getattr(self, f"{axis_name}_var").get()
         self.speed_labels[axis_name].config(text=str(value))
-        entry = self.speed_entries[axis_name]
-        if entry.get() != str(value):
-            entry.delete(0, "end")
-            entry.insert(0, str(value))
+        entry_var = self.axis_entry_vars[axis_name]
+        if entry_var.get() != str(value):
+            entry_var.set(str(value))
         self._update_preview()
         self._schedule_auto_send(reason=f"{axis_name} changed")
 
     def _apply_entry_value(self, axis_name: str):
-        entry = self.speed_entries[axis_name]
-        raw = entry.get().strip()
+        raw = self.axis_entry_vars[axis_name].get().strip()
         axis_var = getattr(self, f"{axis_name}_var")
         scale = self.speed_scales[axis_name]
         low = int(scale.cget("from"))
@@ -1462,6 +1486,29 @@ class WheeltecController:
         except ValueError:
             value = axis_var.get()
         axis_var.set(max(low, min(high, value)))
+        self.axis_entry_vars[axis_name].set(str(axis_var.get()))
+
+    def _on_mode_selected(self, _event: tk.Event | None = None):
+        if self._mode_change_guard:
+            return
+
+        selected = self.mode_var.get()
+        if selected.startswith("0:"):
+            return
+
+        confirmed = messagebox.askyesno(
+            "确认切换模式",
+            f"即将切换到底盘特殊模式：{selected}\n这可能接管当前运动控制。是否继续？",
+        )
+        if confirmed:
+            return
+
+        self._mode_change_guard = True
+        try:
+            self.mode_var.set("0: 正常控制")
+            self.mode_cb.current(0)
+        finally:
+            self._mode_change_guard = False
 
     def _build_current_frame(self) -> MotionFrame:
         mode_str = self.mode_var.get()
@@ -1496,10 +1543,13 @@ class WheeltecController:
                 pass
             self.auto_send_job = None
 
-        self.auto_send_job = self.root.after(
-            self.auto_send_delay_ms,
-            lambda r=reason: self._auto_send_if_needed(r),
-        )
+        try:
+            delay_ms = max(20, int(self.auto_send_delay_var.get()))
+        except (ValueError, tk.TclError):
+            delay_ms = 80
+            self.auto_send_delay_var.set(delay_ms)
+
+        self.auto_send_job = self.root.after(delay_ms, lambda r=reason: self._auto_send_if_needed(r))
 
     def _auto_send_if_needed(self, reason: str = ""):
         self.auto_send_job = None
@@ -1542,6 +1592,7 @@ class WheeltecController:
             self.port_var.set(ports[0])
         else:
             self.port_var.set("")
+        self.conn_btn.config(state="normal" if ports or self.connected else "disabled")
         self._log(f"已刷新串口列表: {', '.join(ports) if ports else '未发现设备'}", "inf")
 
     def _toggle_connection(self):
@@ -1572,8 +1623,8 @@ class WheeltecController:
         self.connected = True
         self.rx_buffer.clear()
         self.last_sent_payload = None
-        self._pending_acks.clear()
-        self._acked_line_ids.clear()
+        self.rx_count = 0
+        self.rx_count_var.set("0")
         self.conn_btn.config(text="断开串口", style="Danger.TButton")
         self.rx_state_var.set("已连接，等待数据")
         self._refresh_runtime_indicators()
@@ -1591,15 +1642,6 @@ class WheeltecController:
             except tk.TclError:
                 pass
             self.auto_send_job = None
-        if self._ack_check_job is not None:
-            try:
-                self.root.after_cancel(self._ack_check_job)
-            except tk.TclError:
-                pass
-            self._ack_check_job = None
-        self._pending_acks.clear()
-        self._acked_line_ids.clear()
-
         if self.ser is not None:
             try:
                 if self.ser.is_open:
@@ -1634,8 +1676,8 @@ class WheeltecController:
             self.connected = True
             self.rx_buffer.clear()
             self.last_sent_payload = None
-            self._pending_acks.clear()
-            self._acked_line_ids.clear()
+            self.rx_count = 0
+            self.rx_count_var.set("0")
             self.conn_btn.config(text="断开串口", style="Danger.TButton")
             self.rx_state_var.set("重连成功，等待数据")
             self._refresh_runtime_indicators()
@@ -1723,8 +1765,11 @@ class WheeltecController:
             return
 
         battery_v = status.power_voltage / 1000.0
+        vel_x_mps = scaled_to_unit(status.vel_x)
+        vel_y_mps = scaled_to_unit(status.vel_y)
+        vel_z_rads = scaled_to_unit(status.vel_z)
         self.rx_value_var.set(
-            f"Vx={status.vel_x}  Vy={status.vel_y}  Vz={status.vel_z}\n"
+            f"Vx={vel_x_mps:.3f} m/s  Vy={vel_y_mps:.3f} m/s  Vz={vel_z_rads:.3f} rad/s\n"
             f"电压={battery_v:.2f}V  停止={status.flag_stop}"
         )
         self.rx_state_var.set(
@@ -1734,9 +1779,10 @@ class WheeltecController:
         self._update_dashboard(status)
 
         suffix = (
-            f" 电池={battery_v:.2f}V "
-            f"Accel=({status.accel_x},{status.accel_y},{status.accel_z}) "
-            f"Gyro=({status.gyro_x},{status.gyro_y},{status.gyro_z})"
+            f" 电池={battery_v:.2f}V"
+            f" Vx={vel_x_mps:.3f}m/s Vy={vel_y_mps:.3f}m/s Vz={vel_z_rads:.3f}rad/s"
+            f" Accel=({status.accel_x},{status.accel_y},{status.accel_z})"
+            f" Gyro=({status.gyro_x},{status.gyro_y},{status.gyro_z})"
         )
         tag = "rx" if status.bcc_valid else "warn"
         self._log(f"← RX: {frame_to_hex(frame)}  [24B]{suffix}", tag)
@@ -1750,7 +1796,7 @@ class WheeltecController:
             ])
 
     def _handle_echo_frame(self, frame: bytes):
-        """解析11字节回显帧（发送帧的应答ACK）"""
+        """解析11字节回显帧。固件默认不保证回显，此处仅做兼容显示。"""
         valid = calc_bcc(frame[:9]) == frame[9]
         try:
             echo = MotionFrame(
@@ -1760,7 +1806,9 @@ class WheeltecController:
                 vz=struct.unpack(">h", frame[7:9])[0],
             )
             self.rx_value_var.set(
-                f"回显: Vx={echo.vx}  Vy={echo.vy}  Vz={echo.vz / 1000:.3f} rad/s"
+                f"回显: Vx={scaled_to_unit(echo.vx):.3f} m/s  "
+                f"Vy={scaled_to_unit(echo.vy):.3f} m/s  "
+                f"Vz={scaled_to_unit(echo.vz):.3f} rad/s"
             )
         except Exception:
             echo = None
@@ -1769,13 +1817,14 @@ class WheeltecController:
         status = "BCC 正常" if valid else "BCC 错误"
         self.rx_state_var.set(f"回显 {status}  @ {self.last_rx_time}")
 
-        if echo is not None and valid:
-            ack_payload = (echo.mode, echo.vx, echo.vy, echo.vz)
-            self._mark_ack_received(ack_payload)
-
         tag = "rx" if valid else "warn"
-        suffix = f"  (Vx={echo.vx} Vy={echo.vy} Vz={echo.vz / 1000:.3f})" if echo else ""
-        self._log(f"← RX: {frame_to_hex(frame)}  [11B回显] {status}{suffix}", tag)
+        suffix = (
+            f"  (Vx={scaled_to_unit(echo.vx):.3f}m/s"
+            f" Vy={scaled_to_unit(echo.vy):.3f}m/s"
+            f" Vz={scaled_to_unit(echo.vz):.3f}rad/s)"
+            if echo else ""
+        )
+        self._log(f"← RX: {frame_to_hex(frame)}  [11B回显/兼容帧] {status}{suffix}", tag)
 
     def _handle_log_frame(self, frame: bytes):
         """Parse 19-byte device log frame."""
@@ -1798,52 +1847,6 @@ class WheeltecController:
             tag,
         )
 
-    def _mark_ack_received(self, payload: tuple):
-        """收到ACK后，更新对应发送日志为成功状态"""
-        if payload not in self._pending_acks:
-            return
-
-        log_line_id, _ = self._pending_acks.pop(payload)
-        self._acked_line_ids.add(log_line_id)
-        self._refresh_runtime_indicators()
-        self.root.after(0, lambda: self._update_log_line_color(log_line_id, "ack_ok"))
-
-    def _update_log_line_color(self, line_id: int, tag: str):
-        """更新指定行号的日志颜色"""
-        try:
-            self.log_text.config(state="normal")
-            start_index = f"{line_id}.0"
-            end_index = f"{line_id}.end"
-            self.log_text.tag_remove("pending", start_index, end_index)
-            self.log_text.tag_add(tag, start_index, end_index)
-            self.log_text.config(state="disabled")
-        except tk.TclError:
-            pass
-
-    def _check_ack_timeout(self):
-        """检查哪些发送记录超时未收到ACK"""
-        if not self.ui_alive:
-            return
-
-        current_time = time.time() * 1000
-        timeout_items = []
-
-        for payload, (log_line_id, send_time) in list(self._pending_acks.items()):
-            if log_line_id not in self._acked_line_ids:
-                if current_time - send_time > self._ack_timeout_ms:
-                    timeout_items.append((payload, log_line_id))
-
-        # 标记超时为失败
-        for payload, log_line_id in timeout_items:
-            if log_line_id not in self._acked_line_ids:
-                self._acked_line_ids.add(log_line_id)
-                self._pending_acks.pop(payload, None)
-                self._update_log_line_color(log_line_id, "ack_fail")
-        self._refresh_runtime_indicators()
-
-        # 继续检查
-        self._ack_check_job = self.root.after(100, self._check_ack_timeout)
-
     def _send_once(self, auto_reason: str | None = None):
         if not self.connected or self.ser is None or not self.ser.is_open:
             self._log("串口未连接，无法发送。", "err")
@@ -1863,24 +1866,13 @@ class WheeltecController:
         send_ts = time.strftime("%H:%M:%S")
         self.last_send_var.set(send_ts)
         reason_text = f" [{auto_reason}]" if auto_reason else ""
-
-        # 获取当前日志行号（在插入之前）
-        self.log_text.update_idletasks()
-        current_line_count = int(self.log_text.index("end-1c").split(".")[0])
-
-        # 记录待确认的发送
-        payload = (frame_obj.mode, frame_obj.vx, frame_obj.vy, frame_obj.vz)
-        self._pending_acks[payload] = (current_line_count, time.time() * 1000)
         self._refresh_runtime_indicators()
-
-        # 启动ACK超时检查（如果还没启动）
-        if self._ack_check_job is None:
-            self._ack_check_job = self.root.after(100, self._check_ack_timeout)
-
-        # 使用pending标签（橙色）标记，待确认状态
         self._log(
-            f"→ TX{reason_text}: {frame_to_hex(frame)}  (Vx={frame_obj.vx} Vy={frame_obj.vy} Vz={frame_obj.vz / 1000:.3f} rad/s)",
-            "pending",
+            f"→ TX{reason_text}: {frame_to_hex(frame)}  "
+            f"(Vx={scaled_to_unit(frame_obj.vx):.3f} m/s "
+            f"Vy={scaled_to_unit(frame_obj.vy):.3f} m/s "
+            f"Vz={scaled_to_unit(frame_obj.vz):.3f} rad/s)",
+            "tx",
         )
 
     def _toggle_logging(self):
@@ -1966,6 +1958,18 @@ class WheeltecController:
         if vz_sign:
             self.vz_var.set(vz_sign * 500)
 
+    def _start_pointer_motion(self, key: str):
+        self.active_pointer_keys.add(key)
+        vx_sign, vy_sign, vz_sign = self.pointer_pad_map[key]
+        self._set_vel(vx_sign, vy_sign, vz_sign)
+
+    def _stop_pointer_motion(self, key: str):
+        if key not in self.active_pointer_keys:
+            return
+        self.active_pointer_keys.discard(key)
+        if not self.active_pointer_keys:
+            self._zero_speeds()
+
     def _zero_speeds(self):
         self.vx_var.set(0)
         self.vy_var.set(0)
@@ -2027,8 +2031,14 @@ class WheeltecController:
         if hasattr(self, 'battery_var'):
             voltage = status.power_voltage / 1000.0
             self.battery_var.set(f"{voltage:.2f} V")
-            # 简单电量估计（4S电池 14.8V满电 / 12V低压）
-            pct = max(0, min(100, (voltage - 12.0) / (14.8 - 12.0) * 100))
+            try:
+                cells = max(1, int(self.battery_cells_var.get().rstrip("S")))
+            except ValueError:
+                cells = 4
+                self.battery_cells_var.set("4S")
+            full_voltage = 4.2 * cells
+            low_voltage = 3.0 * cells
+            pct = max(0, min(100, (voltage - low_voltage) / max(0.1, full_voltage - low_voltage) * 100))
             self.battery_pct_var.set(f"{pct:.0f}%")
             battery_color = SUCCESS if pct >= 60 else WARNING if pct >= 30 else DANGER
             if "battery" in self.metric_value_labels:
@@ -2048,9 +2058,9 @@ class WheeltecController:
                 f"Gyro  Y: {status.gyro_y:>6}\n"
                 f"Gyro  Z: {status.gyro_z:>6}\n"
                 f"─────────────\n"
-                f"Vel X : {status.vel_x:>6} mm/s\n"
-                f"Vel Y : {status.vel_y:>6} mm/s\n"
-                f"Vel Z : {status.vel_z:>6} mm/s"
+                f"Vel X : {scaled_to_unit(status.vel_x):>6.3f} m/s\n"
+                f"Vel Y : {scaled_to_unit(status.vel_y):>6.3f} m/s\n"
+                f"Vel Z : {scaled_to_unit(status.vel_z):>6.3f} rad/s"
             ))
             self.imu_text.config(state="disabled")
 

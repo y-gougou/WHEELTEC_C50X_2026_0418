@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WHEELTEC Web Teleop</title>
+  <style>
+    :root {
+      --bg: #eef3f6;
+      --panel: rgba(255, 255, 255, 0.92);
+      --text: #17313d;
+      --muted: #5d7280;
+      --accent: #00796b;
+      --accent-soft: #d9f2ee;
+      --danger: #be3f3f;
+      --danger-soft: #fde6e6;
+      --border: rgba(23, 49, 61, 0.1);
+      --shadow: 0 18px 40px rgba(20, 39, 49, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(0, 121, 107, 0.12), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(26, 115, 232, 0.08), transparent 32%),
+        var(--bg);
+      min-height: 100vh;
+    }
+
+    .shell {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      backdrop-filter: blur(12px);
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 40px);
+      letter-spacing: -0.03em;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin-bottom: 14px;
+    }
+
+    p.muted, .muted {
+      color: var(--muted);
+    }
+
+    .connection-grid,
+    .metrics-grid,
+    .control-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .connection-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 16px;
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metric {
+      padding: 14px;
+      border-radius: 16px;
+      background: #f8fbfc;
+      border: 1px solid var(--border);
+    }
+
+    .metric-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 15px;
+      background: #fff;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .status-chip.offline {
+      background: #eaeef1;
+      color: #5d7280;
+    }
+
+    .status-chip.danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button.secondary {
+      background: #e7eff2;
+      color: var(--text);
+    }
+
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .control-grid {
+      grid-template-columns: 1.15fr 0.85fr;
+    }
+
+    .joystick-wrap {
+      display: grid;
+      gap: 12px;
+    }
+
+    .joystick {
+      width: min(100%, 420px);
+      aspect-ratio: 1;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at center, rgba(0, 121, 107, 0.1), transparent 36%),
+        linear-gradient(145deg, #ffffff, #e8f1f4);
+      border: 1px solid var(--border);
+      margin: 0 auto;
+      position: relative;
+      touch-action: none;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    }
+
+    .joystick::before,
+    .joystick::after {
+      content: "";
+      position: absolute;
+      background: rgba(23, 49, 61, 0.07);
+    }
+
+    .joystick::before {
+      width: 2px;
+      height: 100%;
+      left: calc(50% - 1px);
+      top: 0;
+    }
+
+    .joystick::after {
+      height: 2px;
+      width: 100%;
+      left: 0;
+      top: calc(50% - 1px);
+    }
+
+    .knob {
+      position: absolute;
+      width: 94px;
+      height: 94px;
+      left: calc(50% - 47px);
+      top: calc(50% - 47px);
+      border-radius: 50%;
+      background:
+        linear-gradient(145deg, #0d8c7c, #006f63);
+      box-shadow:
+        0 14px 30px rgba(0, 121, 107, 0.28),
+        inset 0 2px 4px rgba(255, 255, 255, 0.25);
+      transition: transform 80ms linear;
+    }
+
+    .telemetry-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .telemetry-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #f8fbfc;
+      border: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .log {
+      margin-top: 16px;
+      min-height: 84px;
+      border-radius: 16px;
+      padding: 14px;
+      background: #10252d;
+      color: #d7e6ec;
+      font: 13px/1.5 Consolas, Monaco, monospace;
+      white-space: pre-wrap;
+    }
+
+    @media (max-width: 900px) {
+      .hero,
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="panel">
+        <div class="status-chip offline" id="socketState">Disconnected</div>
+        <h1>WHEELTEC Web Teleop</h1>
+        <p class="muted">
+          Minimal browser-based control and monitoring page for the current
+          `turn_on_wheeltec_robot` package. This MVP uses rosbridge plus a
+          robot-side safety adapter with timeout stop and speed limiting.
+        </p>
+
+        <div class="connection-grid">
+          <div>
+            <label for="wsUrl">Rosbridge WebSocket URL</label>
+            <input id="wsUrl" />
+          </div>
+          <div>
+            <label for="httpHint">Dashboard URL</label>
+            <input id="httpHint" readonly />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="connectBtn">Connect</button>
+          <button class="secondary" id="disconnectBtn">Disconnect</button>
+          <button class="secondary" id="stopBtn">Stop</button>
+          <button class="danger" id="estopBtn">E-Stop</button>
+          <button class="secondary" id="clearEstopBtn">Clear E-Stop</button>
+        </div>
+
+        <div class="log" id="logBox">Waiting for connection…</div>
+      </div>
+
+      <div class="panel">
+        <h2>Live Metrics</h2>
+        <div class="metrics-grid">
+          <div class="metric">
+            <div class="metric-label">Control Status</div>
+            <div class="metric-value" id="controlStatus">idle</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Battery</div>
+            <div class="metric-value" id="batteryVoltage">-- V</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Linear X</div>
+            <div class="metric-value" id="linearX">0.00</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Angular Z</div>
+            <div class="metric-value" id="angularZ">0.00</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="control-grid">
+      <div class="panel joystick-wrap">
+        <div>
+          <h2>Joystick</h2>
+          <p class="muted">Drag inside the pad to publish `/cmd_vel_web`.</p>
+        </div>
+        <div class="joystick" id="joystick">
+          <div class="knob" id="knob"></div>
+        </div>
+        <div class="telemetry-list">
+          <div class="telemetry-item"><span>Command Linear X</span><strong id="cmdLinearX">0.00</strong></div>
+          <div class="telemetry-item"><span>Command Linear Y</span><strong id="cmdLinearY">0.00</strong></div>
+          <div class="telemetry-item"><span>Command Angular Z</span><strong id="cmdAngularZ">0.00</strong></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Telemetry</h2>
+        <div class="telemetry-list">
+          <div class="telemetry-item"><span>Current Channel 0</span><strong id="current0">-- A</strong></div>
+          <div class="telemetry-item"><span>Current Channel 1</span><strong id="current1">-- A</strong></div>
+          <div class="telemetry-item"><span>Current Channel 2</span><strong id="current2">-- A</strong></div>
+          <div class="telemetry-item"><span>IMU Gyro Z</span><strong id="imuGz">--</strong></div>
+          <div class="telemetry-item"><span>Odom X</span><strong id="odomX">--</strong></div>
+          <div class="telemetry-item"><span>Odom Y</span><strong id="odomY">--</strong></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const socketState = document.getElementById("socketState");
+    const wsUrlInput = document.getElementById("wsUrl");
+    const httpHintInput = document.getElementById("httpHint");
+    const logBox = document.getElementById("logBox");
+    const controlStatus = document.getElementById("controlStatus");
+    const batteryVoltage = document.getElementById("batteryVoltage");
+    const linearX = document.getElementById("linearX");
+    const angularZ = document.getElementById("angularZ");
+    const current0 = document.getElementById("current0");
+    const current1 = document.getElementById("current1");
+    const current2 = document.getElementById("current2");
+    const imuGz = document.getElementById("imuGz");
+    const odomX = document.getElementById("odomX");
+    const odomY = document.getElementById("odomY");
+    const cmdLinearX = document.getElementById("cmdLinearX");
+    const cmdLinearY = document.getElementById("cmdLinearY");
+    const cmdAngularZ = document.getElementById("cmdAngularZ");
+
+    const joystick = document.getElementById("joystick");
+    const knob = document.getElementById("knob");
+
+    const rosbridgePort = 9090;
+    const maxLinear = 0.35;
+    const maxLateral = 0.35;
+    const maxAngular = 0.9;
+
+    let socket = null;
+    let heartbeatTimer = null;
+    let commandTimer = null;
+    let joystickActive = false;
+    let normalized = { x: 0, y: 0 };
+
+    wsUrlInput.value = `ws://${window.location.hostname || "127.0.0.1"}:${rosbridgePort}`;
+    httpHintInput.value = window.location.href;
+
+    function log(message) {
+      const stamp = new Date().toLocaleTimeString();
+      logBox.textContent = `[${stamp}] ${message}\n` + logBox.textContent;
+    }
+
+    function setSocketState(label, kind) {
+      socketState.textContent = label;
+      socketState.className = "status-chip";
+      if (kind === "offline") {
+        socketState.classList.add("offline");
+      } else if (kind === "danger") {
+        socketState.classList.add("danger");
+      }
+    }
+
+    function send(payload) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      socket.send(JSON.stringify(payload));
+    }
+
+    function publish(topic, msg) {
+      send({ op: "publish", topic, msg });
+    }
+
+    function subscribe(topic, type) {
+      send({ op: "subscribe", topic, type, queue_length: 1 });
+    }
+
+    function startTimers() {
+      stopTimers();
+      heartbeatTimer = setInterval(() => {
+        publish("/web/heartbeat", {});
+      }, 250);
+
+      commandTimer = setInterval(() => {
+        publish("/cmd_vel_web", {
+          linear: {
+            x: -normalized.y * maxLinear,
+            y: normalized.x * maxLateral,
+            z: 0.0
+          },
+          angular: {
+            x: 0.0,
+            y: 0.0,
+            z: normalized.x * maxAngular
+          }
+        });
+      }, 100);
+    }
+
+    function stopTimers() {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (commandTimer) {
+        clearInterval(commandTimer);
+        commandTimer = null;
+      }
+    }
+
+    function connect() {
+      disconnect();
+      socket = new WebSocket(wsUrlInput.value);
+
+      socket.onopen = () => {
+        setSocketState("Connected", "ok");
+        log(`Connected to ${wsUrlInput.value}`);
+        subscribe("/odom", "nav_msgs/Odometry");
+        subscribe("/imu", "sensor_msgs/Imu");
+        subscribe("/PowerVoltage", "std_msgs/Float32");
+        subscribe("/current_data", "std_msgs/Float32MultiArray");
+        subscribe("/web/control_status", "std_msgs/String");
+        startTimers();
+      };
+
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.op !== "publish" || !payload.msg) {
+          return;
+        }
+
+        if (payload.topic === "/PowerVoltage") {
+          batteryVoltage.textContent = `${Number(payload.msg.data || 0).toFixed(2)} V`;
+        } else if (payload.topic === "/current_data") {
+          const data = payload.msg.data || [];
+          current0.textContent = `${Number(data[0] || 0).toFixed(3)} A`;
+          current1.textContent = `${Number(data[1] || 0).toFixed(3)} A`;
+          current2.textContent = `${Number(data[2] || 0).toFixed(3)} A`;
+        } else if (payload.topic === "/imu") {
+          imuGz.textContent = Number(payload.msg.angular_velocity?.z || 0).toFixed(3);
+        } else if (payload.topic === "/odom") {
+          const twist = payload.msg.twist?.twist || {};
+          const pose = payload.msg.pose?.pose || {};
+          linearX.textContent = Number(twist.linear?.x || 0).toFixed(2);
+          angularZ.textContent = Number(twist.angular?.z || 0).toFixed(2);
+          odomX.textContent = Number(pose.position?.x || 0).toFixed(3);
+          odomY.textContent = Number(pose.position?.y || 0).toFixed(3);
+        } else if (payload.topic === "/web/control_status") {
+          controlStatus.textContent = payload.msg.data || "unknown";
+          if ((payload.msg.data || "").indexOf("estop") >= 0) {
+            setSocketState("E-STOP", "danger");
+          }
+        }
+      };
+
+      socket.onerror = () => {
+        log("WebSocket error");
+      };
+
+      socket.onclose = () => {
+        stopTimers();
+        setSocketState("Disconnected", "offline");
+        log("Disconnected");
+      };
+    }
+
+    function disconnect() {
+      stopTimers();
+      if (socket) {
+        try {
+          socket.close();
+        } catch (error) {
+          // Ignore close race.
+        }
+      }
+      socket = null;
+      setSocketState("Disconnected", "offline");
+    }
+
+    function publishStop() {
+      normalized = { x: 0, y: 0 };
+      renderKnob();
+      updateCommandReadout();
+      publish("/cmd_vel_web", {
+        linear: { x: 0.0, y: 0.0, z: 0.0 },
+        angular: { x: 0.0, y: 0.0, z: 0.0 }
+      });
+    }
+
+    function publishEstop(active) {
+      publish("/web/estop", { data: active });
+      if (active) {
+        setSocketState("E-STOP", "danger");
+      }
+      log(active ? "Emergency stop latched" : "Emergency stop cleared");
+    }
+
+    function updateCommandReadout() {
+      cmdLinearX.textContent = (-normalized.y * maxLinear).toFixed(2);
+      cmdLinearY.textContent = (normalized.x * maxLateral).toFixed(2);
+      cmdAngularZ.textContent = (normalized.x * maxAngular).toFixed(2);
+    }
+
+    function renderKnob() {
+      const radius = joystick.clientWidth * 0.32;
+      knob.style.transform = `translate(${normalized.x * radius}px, ${normalized.y * radius}px)`;
+    }
+
+    function updateJoystick(pointerX, pointerY) {
+      const rect = joystick.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const dx = pointerX - centerX;
+      const dy = pointerY - centerY;
+      const limit = rect.width * 0.32;
+      const length = Math.sqrt(dx * dx + dy * dy);
+
+      if (length > limit) {
+        normalized.x = dx / length;
+        normalized.y = dy / length;
+      } else {
+        normalized.x = dx / limit;
+        normalized.y = dy / limit;
+      }
+
+      normalized.x = Math.max(-1, Math.min(1, normalized.x));
+      normalized.y = Math.max(-1, Math.min(1, normalized.y));
+      renderKnob();
+      updateCommandReadout();
+    }
+
+    joystick.addEventListener("pointerdown", (event) => {
+      joystickActive = true;
+      joystick.setPointerCapture(event.pointerId);
+      updateJoystick(event.clientX, event.clientY);
+    });
+
+    joystick.addEventListener("pointermove", (event) => {
+      if (!joystickActive) {
+        return;
+      }
+      updateJoystick(event.clientX, event.clientY);
+    });
+
+    function releaseJoystick() {
+      joystickActive = false;
+      normalized = { x: 0, y: 0 };
+      renderKnob();
+      updateCommandReadout();
+      publishStop();
+    }
+
+    joystick.addEventListener("pointerup", releaseJoystick);
+    joystick.addEventListener("pointercancel", releaseJoystick);
+    joystick.addEventListener("pointerleave", () => {
+      if (joystickActive) {
+        releaseJoystick();
+      }
+    });
+
+    document.getElementById("connectBtn").addEventListener("click", connect);
+    document.getElementById("disconnectBtn").addEventListener("click", disconnect);
+    document.getElementById("stopBtn").addEventListener("click", publishStop);
+    document.getElementById("estopBtn").addEventListener("click", () => publishEstop(true));
+    document.getElementById("clearEstopBtn").addEventListener("click", () => publishEstop(false));
+
+    renderKnob();
+    updateCommandReadout();
+  </script>
+</body>
+</html>
