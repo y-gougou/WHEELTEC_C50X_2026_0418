@@ -35,6 +35,12 @@ class WebCmdVelAdapter(object):
         self.max_linear_x = rospy.get_param("~max_linear_x", 0.4)
         self.max_linear_y = rospy.get_param("~max_linear_y", 0.4)
         self.max_angular_z = rospy.get_param("~max_angular_z", 1.0)
+        self.linear_deadband = rospy.get_param("~linear_deadband", 0.02)
+        self.angular_deadband = rospy.get_param("~angular_deadband", 0.03)
+        self.response_exponent = rospy.get_param("~response_exponent", 0.70)
+        self.min_linear_ratio = rospy.get_param("~min_linear_ratio", 0.20)
+        self.min_lateral_ratio = rospy.get_param("~min_lateral_ratio", 0.15)
+        self.min_angular_ratio = rospy.get_param("~min_angular_ratio", 0.24)
 
         self.last_cmd = Twist()
         self.last_cmd_time = rospy.Time(0)
@@ -71,6 +77,23 @@ class WebCmdVelAdapter(object):
     def zero_twist(self):
         return Twist()
 
+    def shape_axis(self, value, limit, deadband, min_ratio):
+        if limit <= 0.0:
+            return 0.0
+
+        magnitude = abs(value)
+        if magnitude <= 0.0:
+            return 0.0
+
+        normalized = min(1.0, magnitude / limit)
+        if normalized <= deadband:
+            return 0.0
+
+        span = max(1e-6, 1.0 - deadband)
+        normalized = (normalized - deadband) / span
+        shaped = min_ratio + (1.0 - min_ratio) * pow(normalized, self.response_exponent)
+        return shaped * limit if value >= 0.0 else -shaped * limit
+
     def publish_status(self, status):
         if status != self.last_status:
             self.last_status = status
@@ -79,9 +102,24 @@ class WebCmdVelAdapter(object):
 
     def cmd_callback(self, msg):
         limited = Twist()
-        limited.linear.x = self.clamp(msg.linear.x, self.max_linear_x)
-        limited.linear.y = self.clamp(msg.linear.y, self.max_linear_y)
-        limited.angular.z = self.clamp(msg.angular.z, self.max_angular_z)
+        limited.linear.x = self.shape_axis(
+            self.clamp(msg.linear.x, self.max_linear_x),
+            self.max_linear_x,
+            self.linear_deadband,
+            self.min_linear_ratio,
+        )
+        limited.linear.y = self.shape_axis(
+            self.clamp(msg.linear.y, self.max_linear_y),
+            self.max_linear_y,
+            self.linear_deadband,
+            self.min_lateral_ratio,
+        )
+        limited.angular.z = self.shape_axis(
+            self.clamp(msg.angular.z, self.max_angular_z),
+            self.max_angular_z,
+            self.angular_deadband,
+            self.min_angular_ratio,
+        )
 
         self.last_cmd = limited
         self.last_cmd_time = rospy.Time.now()

@@ -137,10 +137,11 @@ timestamp,x,y,z,vx,vy,vz,ax,ay,az,gx,gy,gz,voltage,current0,current1,current2
 ### 功能范围
 
 - 单页浏览器控制界面，适配手机和桌面端
-- 虚拟摇杆控制
+- 虚拟摇杆控制（前进/后退 + 转向单摇杆）
+- 浏览器原生 Xbox 手柄支持（Gamepad API）
 - 急停与解除急停
 - 电池、电流、里程计、IMU 基础监控
-- 机器人侧命令超时保护和限速
+- 机器人侧命令超时保护、限速和更灵敏的响应曲线
 
 当前不包含：
 
@@ -178,6 +179,21 @@ roslaunch turn_on_wheeltec_robot web_control.launch
 - 浏览器控制是便利入口，不应替代物理急停
 - 真机测试前先把限速参数调小
 
+### Xbox 手柄映射
+
+浏览器检测到 Xbox 手柄后，会在页面中显示控制器状态，并自动作为第二输入源接入现有 Web 控制链路：
+
+- 左摇杆：前进/后退 + 转向
+- `A`：立即停车
+- `B`：锁存急停
+- `X`：解除急停
+
+说明：
+
+- 当你正在拖动页面摇杆时，触摸输入优先
+- 松开页面摇杆后，Xbox 手柄可直接接管
+- 依然通过 `/cmd_vel_web`、`/web/heartbeat`、`/web/estop` 进入机器人侧安全适配节点
+
 ---
 
 ## 参数配置
@@ -211,11 +227,17 @@ rosrun turn_on_wheeltec_robot current_reader.py _port:=/dev/ttyCH343USB1 _baud:=
 |------|--------|------|
 | `rosbridge_port` | `9090` | rosbridge 端口 |
 | `web_port` | `8000` | 静态 Web 页面端口 |
+| `publish_rate` | `40.0` | 机器人侧控制发布频率（Hz） |
 | `cmd_timeout` | `0.5` | 命令超时停车阈值 |
 | `heartbeat_timeout` | `1.0` | 心跳超时停车阈值 |
-| `max_linear_x` | `0.35` | 最大前后速度 |
+| `max_linear_x` | `0.55` | 最大前后速度 |
 | `max_linear_y` | `0.35` | 最大横移速度 |
-| `max_angular_z` | `0.90` | 最大角速度 |
+| `max_angular_z` | `1.60` | 最大角速度 |
+| `linear_deadband` | `0.02` | 机器人侧线速度死区 |
+| `angular_deadband` | `0.03` | 机器人侧角速度死区 |
+| `response_exponent` | `0.70` | 响应曲线指数，越小越灵敏 |
+| `min_linear_ratio` | `0.20` | 一旦脱离死区后的最小前进响应比例 |
+| `min_angular_ratio` | `0.24` | 一旦脱离死区后的最小转向响应比例 |
 
 ---
 
