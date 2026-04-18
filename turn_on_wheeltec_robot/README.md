@@ -18,7 +18,7 @@
 | 设备 | 默认串口 | 波特率 | 说明 |
 |------|----------|--------|------|
 | 底盘控制器 | `/dev/wheeltec_controller` | 115200 | 与 `base_serial.launch` 保持一致，建议通过 udev 别名固定 |
-| 电流采集板 | `/dev/ttyCH343USB1` | 115200 | 由 `current_reader.py` 读取 |
+| 电流采集板 | `/dev/ttyUSB1` | 115200 | 由 `current_reader.py` 读取 |
 
 ### ROS 话题
 
@@ -202,14 +202,14 @@ roslaunch turn_on_wheeltec_robot web_control.launch
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `~port` | `/dev/ttyCH343USB1` | 电流采集串口 |
+| `~port` | `/dev/ttyUSB1` | 电流采集串口 |
 | `~baud` | `115200` | 波特率 |
 | `~timeout` | `1.0` | 串口超时（秒） |
 
 示例：
 
 ```bash
-rosrun turn_on_wheeltec_robot current_reader.py _port:=/dev/ttyCH343USB1 _baud:=115200
+rosrun turn_on_wheeltec_robot current_reader.py _port:=/dev/ttyUSB1 _baud:=115200
 ```
 
 ### data_collector.py
@@ -271,7 +271,7 @@ rostopic hz /current_data
 
 ```bash
 cat /dev/wheeltec_controller
-cat /dev/ttyCH343USB1
+cat /dev/ttyUSB1
 ```
 
 ---
@@ -289,8 +289,8 @@ cat /dev/ttyCH343USB1
 
 ```bash
 rostopic echo /current_data
-ls -l /dev/ttyCH343USB1
-cat /dev/ttyCH343USB1
+ls -l /dev/ttyUSB1
+cat /dev/ttyUSB1
 ```
 
 ### 3. 里程计或 IMU 无数据
