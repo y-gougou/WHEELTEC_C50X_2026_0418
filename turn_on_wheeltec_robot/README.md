@@ -17,7 +17,7 @@
 
 | 设备 | 默认串口 | 波特率 | 说明 |
 |------|----------|--------|------|
-| 底盘控制器 | `/dev/wheeltec_controller` | 115200 | 与 `base_serial.launch` 保持一致，建议通过 udev 别名固定 |
+| 底盘控制器 | `/dev/ttyCH343USB0` | 115200 | 与 `base_serial.launch` 保持一致 |
 | 电流采集板 | `/dev/ttyUSB1` | 115200 | 由 `current_reader.py` 读取 |
 
 ### ROS 话题
@@ -88,35 +88,32 @@ catkin_make
 source devel/setup.bash
 ```
 
-### 启动方式 1：一键采集
+### 启动方式 1：Web 控制 + 数据采集并行
+
+终端 1 - 启动 Web 控制（不启动数据采集）：
+
+```bash
+roslaunch turn_on_wheeltec_robot web_control.launch start_data_collector:=false
+```
+
+终端 2 - 启动数据采集：
 
 ```bash
 roslaunch turn_on_wheeltec_robot data_collector.launch
 ```
 
-这个 launch 会启动：
+`data_collector.launch` 使用独立命名空间（`/collector/`），避免与 `web_control.launch` 中的节点名称冲突。
 
-- 底盘串口节点
-- 电流采集节点
-- CSV 数据采集节点
+### 启动方式 2：单独启动数据采集
 
-### 启动方式 2：分开启动
-
-终端 1：
+如果只需数据采集不需要 Web 控制：
 
 ```bash
+# 终端 1 - 启动底盘和电流采集
 roslaunch turn_on_wheeltec_robot turn_on_wheeltec_robot.launch
-```
-
-终端 2：
-
-```bash
 rosrun turn_on_wheeltec_robot current_reader.py
-```
 
-终端 3：
-
-```bash
+# 终端 2 - 启动数据采集
 rosrun turn_on_wheeltec_robot data_collector.py
 ```
 
@@ -217,7 +214,7 @@ rosrun turn_on_wheeltec_robot current_reader.py _port:=/dev/ttyUSB1 _baud:=11520
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `~output_dir` | `/home/wheeltec/R550PLUS_data_collect/log` | 输出目录 |
-| `~rate` | `10` | 采样频率（Hz） |
+| `~rate` | `100` | 采样频率（Hz） |
 | `~window_size` | `50` | 滑动窗口大小 |
 | `~step_size` | `10` | 滑动步长 |
 
@@ -230,9 +227,9 @@ rosrun turn_on_wheeltec_robot current_reader.py _port:=/dev/ttyUSB1 _baud:=11520
 | `publish_rate` | `40.0` | 机器人侧控制发布频率（Hz） |
 | `cmd_timeout` | `0.5` | 命令超时停车阈值 |
 | `heartbeat_timeout` | `1.0` | 心跳超时停车阈值 |
-| `max_linear_x` | `0.55` | 最大前后速度 |
-| `max_linear_y` | `0.35` | 最大横移速度 |
-| `max_angular_z` | `1.60` | 最大角速度 |
+| `max_linear_x` | `1.50` | 最大前后速度 |
+| `max_linear_y` | `1.00` | 最大横移速度 |
+| `max_angular_z` | `3.75` | 最大角速度 |
 | `linear_deadband` | `0.02` | 机器人侧线速度死区 |
 | `angular_deadband` | `0.03` | 机器人侧角速度死区 |
 | `response_exponent` | `0.70` | 响应曲线指数，越小越灵敏 |
@@ -270,7 +267,7 @@ rostopic hz /current_data
 ### 检查串口
 
 ```bash
-cat /dev/wheeltec_controller
+cat /dev/ttyCH343USB0
 cat /dev/ttyUSB1
 ```
 
@@ -297,7 +294,7 @@ cat /dev/ttyUSB1
 
 ```bash
 rostopic echo /odom
-cat /dev/wheeltec_controller
+cat /dev/ttyCH343USB0
 roslaunch turn_on_wheeltec_robot turn_on_wheeltec_robot.launch
 ```
 
