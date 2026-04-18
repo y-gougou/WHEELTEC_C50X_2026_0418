@@ -180,6 +180,7 @@ timestamp,x,y,z,vx,vy,vz,ax,ay,az,gx,gy,gz,voltage,current0,current1,current2
 
 - 前端源码在 `turn_on_wheeltec_robot/webapp`
 - 前端构建产物输出到 `turn_on_wheeltec_robot/web/dist`
+- `web/dist` 默认作为本地构建产物使用，不建议直接提交 `node_modules` 或其它前端生成缓存
 - `web_dashboard_server.py` 会优先服务 `web/dist`
 - `web/dist` 不存在时自动回退到旧版 `web/index.html`
 

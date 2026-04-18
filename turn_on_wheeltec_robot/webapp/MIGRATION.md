@@ -50,6 +50,11 @@
    - `roslaunch turn_on_wheeltec_robot web_control.launch`
 7. 浏览器打开 `http://<robot-ip>:8000`
 
+注意：
+
+- `webapp/node_modules`、`*.tsbuildinfo`、以及配置文件的编译副产物不应提交到版本库
+- `web/dist` 建议作为部署产物管理，而不是长期手工维护的源码目录
+
 ## 上线检查清单
 
 建议在真机上线前逐项确认：

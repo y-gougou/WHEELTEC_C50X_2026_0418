@@ -1,8 +1,10 @@
 import { buildApiBase, buildRosbridgeUrl } from "@/shared/lib/browser";
 
+const defaultRosbridgeUrl = buildRosbridgeUrl();
+
 export const robotConfig = {
-  rosbridgeUrl: buildRosbridgeUrl(),
-  apiBase: buildApiBase(),
+  rosbridgeUrl: defaultRosbridgeUrl,
+  apiBase: buildApiBase(defaultRosbridgeUrl),
   heartbeatMs: 250,
   commandMs: 33,
   chartLength: 48,

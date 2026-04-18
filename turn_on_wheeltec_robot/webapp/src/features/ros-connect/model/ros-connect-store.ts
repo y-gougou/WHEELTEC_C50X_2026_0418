@@ -1,11 +1,15 @@
 import { create } from "zustand";
 
 import { robotConfig } from "@/shared/config/robot";
+import { buildApiBase } from "@/shared/lib/browser";
 import type { RosConnectionSnapshot } from "@/shared/types/ros";
 
 interface RosConnectState extends RosConnectionSnapshot {
+  draftUrl: string;
+  apiBase: string;
   manualDisconnect: boolean;
-  setUrl: (url: string) => void;
+  setDraftUrl: (url: string) => void;
+  applyDraftUrl: () => void;
   setSnapshot: (snapshot: RosConnectionSnapshot) => void;
   setManualDisconnect: (manualDisconnect: boolean) => void;
 }
@@ -13,9 +17,16 @@ interface RosConnectState extends RosConnectionSnapshot {
 export const useRosConnectStore = create<RosConnectState>((set) => ({
   status: "disconnected",
   url: robotConfig.rosbridgeUrl,
+  draftUrl: robotConfig.rosbridgeUrl,
+  apiBase: robotConfig.apiBase,
   error: undefined,
   manualDisconnect: false,
-  setUrl: (url) => set({ url }),
+  setDraftUrl: (draftUrl) => set({ draftUrl }),
+  applyDraftUrl: () =>
+    set((state) => ({
+      url: state.draftUrl,
+      apiBase: buildApiBase(state.draftUrl),
+    })),
   setSnapshot: (snapshot) => set(snapshot),
   setManualDisconnect: (manualDisconnect) => set({ manualDisconnect }),
 }));

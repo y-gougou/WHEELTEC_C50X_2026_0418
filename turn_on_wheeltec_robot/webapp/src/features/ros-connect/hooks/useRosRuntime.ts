@@ -6,8 +6,6 @@ import { useRosConnectStore } from "@/features/ros-connect/model/ros-connect-sto
 import { rosClient } from "@/shared/lib/ros/client";
 
 export function useRosRuntime() {
-  const url = useRosConnectStore((state) => state.url);
-  const manualDisconnect = useRosConnectStore((state) => state.manualDisconnect);
   const setSnapshot = useRosConnectStore((state) => state.setSnapshot);
   const appendLog = useRobotStore((state) => state.appendLog);
 
@@ -20,6 +18,7 @@ export function useRosRuntime() {
     });
     const unregisterTopics = registerRosTopics();
 
+    const { manualDisconnect, url } = useRosConnectStore.getState();
     if (!manualDisconnect) {
       rosClient.connect(url);
     }
@@ -28,6 +27,7 @@ export function useRosRuntime() {
       unsubscribeState();
       unsubscribeLog();
       unregisterTopics();
+      rosClient.disconnect();
     };
-  }, [appendLog, manualDisconnect, setSnapshot, url]);
+  }, [appendLog, setSnapshot]);
 }

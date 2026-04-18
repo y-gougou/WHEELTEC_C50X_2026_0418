@@ -14,3 +14,10 @@ build/
 devel/
 install/
 log/
+
+# Frontend generated outputs
+turn_on_wheeltec_robot/web/dist/
+turn_on_wheeltec_robot/webapp/node_modules/
+turn_on_wheeltec_robot/webapp/*.js
+turn_on_wheeltec_robot/webapp/*.d.ts
+turn_on_wheeltec_robot/webapp/*.tsbuildinfo

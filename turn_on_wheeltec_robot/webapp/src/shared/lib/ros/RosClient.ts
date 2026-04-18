@@ -38,6 +38,7 @@ export class RosClient {
   connect(url: string) {
     this.desiredConnection = true;
     this.clearReconnectTimer();
+    this.teardownActiveRos();
     this.setSnapshot("connecting", url);
     this.openConnection(url);
   }
@@ -45,15 +46,7 @@ export class RosClient {
   disconnect() {
     this.desiredConnection = false;
     this.clearReconnectTimer();
-    if (this.ros) {
-      try {
-        this.ros.close();
-      } catch {
-        // Ignore close races from browser unload/reconnect.
-      }
-    }
-    this.ros = undefined;
-    this.resetTopicHandles();
+    this.teardownActiveRos();
     this.setSnapshot("disconnected", this.snapshot.url);
   }
 
@@ -120,6 +113,9 @@ export class RosClient {
     this.ros = ros;
 
     ros.on("connection", () => {
+      if (this.ros !== ros) {
+        return;
+      }
       this.reconnectAttempts = 0;
       this.setSnapshot("connected", url);
       this.log(`Connected to ${url}`);
@@ -127,12 +123,18 @@ export class RosClient {
     });
 
     ros.on("error", (error: unknown) => {
+      if (this.ros !== ros) {
+        return;
+      }
       const message = error instanceof Error ? error.message : "Unknown rosbridge error";
       this.setSnapshot("error", url, message);
       this.log(`ROS error: ${message}`);
     });
 
     ros.on("close", () => {
+      if (this.ros !== ros) {
+        return;
+      }
       this.resetTopicHandles();
       if (!this.desiredConnection) {
         this.setSnapshot("disconnected", url);
@@ -156,6 +158,22 @@ export class RosClient {
     if (this.reconnectTimer) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
+    }
+  }
+
+  private teardownActiveRos() {
+    const activeRos = this.ros;
+    this.ros = undefined;
+    this.resetTopicHandles();
+
+    if (!activeRos) {
+      return;
+    }
+
+    try {
+      activeRos.close();
+    } catch {
+      // Ignore close races from browser unload/reconnect.
     }
   }
 

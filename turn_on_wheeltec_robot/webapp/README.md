@@ -44,6 +44,15 @@ npm run dev
 - 开发模式下，前端默认仍然连接 `ws://<当前主机>:9090`
 - 如果你在开发机打开页面、但 rosbridge 运行在机器人上，请确保页面访问地址和 ROS 主机地址一致，或按需要调整连接地址
 
+推荐在本地开发时配置：
+
+```bash
+VITE_ROSBRIDGE_URL=ws://<robot-ip>:9090
+VITE_API_BASE=http://<robot-ip>:8000
+```
+
+这样 Recorder 文件列表和 CSV 下载会直接指向机器人 Web 服务，而不是 Vite 开发服务器。
+
 ## 部署
 
 ### 部署目标
