@@ -468,7 +468,7 @@
         drive, turn, lat, mult,
         twist: {
           linear:  { x: drive * T.maxLinear * mult, y: lat * T.maxLateral * mult, z: 0.0 },
-          angular: { x: 0.0, y: 0.0, z: turn * T.maxAngular * mult }
+          angular: { x: 0.0, y: 0.0, z: -turn * T.maxAngular * mult }
         }
       };
     }
