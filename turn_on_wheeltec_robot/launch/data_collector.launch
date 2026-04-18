@@ -1,38 +1,43 @@
 <launch>
     <!--
         R550PLUS 三全向轮机器人数据采集启动文件
-        使用方式二：ROS消息订阅
 
         启动顺序：
-        1. 机器人底层控制 (wheeltec_robot_node)
+        1. 机器人底层控制 (wheeltec_robot_node) - 由 web_control.launch 提供
         2. 电流数据读取 (current_reader)
         3. 数据采集节点 (data_collector)
 
-        使用方法：
+        使用方法（假设 web_control 已运行）：
         roslaunch turn_on_wheeltec_robot data_collector.launch
     -->
 
-    <!-- 机器人底层控制节点 -->
-    <include file="$(find turn_on_wheeltec_robot)/launch/include/base_serial.launch"/>
+    <!-- 使用命名空间避免与 web_control.launch 中的节点名称冲突 -->
+    <arg name="collector_namespace" default="collector"/>
 
     <!-- 电流数据读取节点 -->
-    <node name="current_reader" pkg="turn_on_wheeltec_robot" type="current_reader.py" output="screen" respawn="false">
-        <!-- 电流传感器串口 (根据实际修改) -->
+    <node ns="$(arg collector_namespace)"
+          name="current_reader"
+          pkg="turn_on_wheeltec_robot"
+          type="current_reader.py"
+          output="screen"
+          respawn="false">
         <param name="port" value="/dev/ttyCH343USB1"/>
         <param name="baud" value="115200"/>
         <param name="frame_id" value="current_sensor"/>
     </node>
 
-    <!-- 数据采集节点 -->
-    <node name="data_collector" pkg="turn_on_wheeltec_robot" type="data_collector.py" output="screen" respawn="false">
-        <!-- 数据输出目录 -->
+    <!-- 数据采集节点 (自动开始采集) -->
+    <node ns="$(arg collector_namespace)"
+          name="data_collector"
+          pkg="turn_on_wheeltec_robot"
+          type="data_collector.py"
+          output="screen"
+          respawn="false">
         <param name="output_dir" value="/home/wheeltec/R550PLUS_data_collect/log"/>
-        <!-- 采集频率 Hz -->
         <param name="rate" value="100"/>
-        <!-- 滑动窗口大小 (帧数) -->
         <param name="window_size" value="50"/>
-        <!-- 滑动步长 -->
         <param name="step_size" value="10"/>
+        <param name="auto_start" value="true"/>
     </node>
 
 </launch>
